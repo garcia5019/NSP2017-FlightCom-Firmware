@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # NSP-HLM1
 
 A Particle project named NSP-HLM1
@@ -37,4 +36,3 @@ When you're ready to compile your project, make sure you have the correct Partic
 =======
 # NSP2017-FLIGHTCOMPUTER
 Flight Computer Firmware for NSP CAPSULE
->>>>>>> c0e7275e4d0a3153dbc4399d747ac39ed7f01e5b
