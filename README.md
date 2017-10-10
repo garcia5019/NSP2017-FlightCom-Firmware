@@ -1,0 +1,2 @@
+# NSP2017-FLIGHTCOMPUTER
+Flight Computer Firmware for NSP CAPSULE
