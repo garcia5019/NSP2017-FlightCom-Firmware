@@ -148,14 +148,20 @@ void a30second_tick() {
 
 void a60second_tick() {
 	elapsedMinutes++;
+	if (elapsedMinutes==3) { a3Minute_tick();  }
 	if (elapsedMinutes>=5) { a5Minute_tick(); elapsedMinutes = 0; }
 
 	Serial.println("60 TICK");
 	batteryLevel = fuel.getSoC();
 }
 
+void a3Minute_tick() {
+	Serial.println("[EVENT] 3 Minute Tick");
+	sendStatusToCloud(); //Send SAT STRING to cloud if connected..
+}
+
 void a5Minute_tick() {
-	Serial.println("5 minute TICK");
+	Serial.println("[EVENT] 5 Minute Tick");
 }
 
 
@@ -221,6 +227,12 @@ void updateStage() {
 
 	
 	
+}
+
+void sendStatusToCloud() {
+	if (Particle.connected() == true) { 
+		Particle.publish("S",satString());
+	}
 }
 
 //Helper Functions
@@ -388,6 +400,20 @@ int computerRequest(String param) {
 		COMPUTER.printlnf("Firmware version: %s", System.version().c_str());
 	}
 
+	if (param == "$") {
+		COMPUTER.println(satString());
+		sendStatusToCloud();
+	}
+
+	if (param == "$$") {
+		COMPUTER.println(satString());
+		sendStatusToCloud();		
+	}
+
+	if (param == "$$$") {
+		//TODO
+	}
+
 	if (param == "?") {
 		COMPUTER.printlnf("-------------------------.--------------------------");		
 		COMPUTER.printlnf("Status Sentence (1hz):");
@@ -411,8 +437,11 @@ int computerRequest(String param) {
 		COMPUTER.printlnf("rssi? = Cell Signal Strength?");
 		COMPUTER.printlnf("cloud? = Is cloud available?");
 		COMPUTER.printlnf("fwversion? = OS Firmware Version?");		
+		COMPUTER.printlnf("$ = Print status string");		
+		COMPUTER.printlnf("$$ = Print and send to cell cloud status string");		
+		COMPUTER.printlnf("$$$ = Print and send to cell cloud status string");		
 		COMPUTER.printlnf("-------------------------.--------------------------");
-		
+
 	}
 
 	return 0;
