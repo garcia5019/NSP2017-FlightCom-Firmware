@@ -19,6 +19,7 @@ float minimumAltitudeToTriggerRecovery = 2300;
 //SIM SETTINGS
 bool simulationMode = false;
 bool debugMode = true;
+bool gpsDebugDump = false;
 float simulatedApogeeAltitude = 1000;
 //
 
@@ -132,9 +133,10 @@ void second_tick() {
 	updateStage();
 	/////////////////
 	
-	if (debugMode == true) {
+	if (debugMode == true && gpsDebugDump == false) {
 		Serial.println(satString());
 	}
+
 
 	timer.startFromISR();		
 }
@@ -258,6 +260,10 @@ void GPSEvent()
 		while (GPS.available()) {			
 			char c = GPS.read();			
 			gpsParser.encode(c);
+			if (gpsDebugDump==true) {
+				Serial.print(c);  
+			}
+			
 		}
 	}	
 
@@ -334,8 +340,15 @@ int computerRequest(String param) {
 		setCellModem(false);
 		return 1;
 	}
-	if  (param == "altpermin?") {
+	if (param == "gpsdump") {		
+		gpsDebugDump = !gpsDebugDump;
+		return 1;
+	}
+	if  (param == "vsi?") {
 		COMPUTER.println(String(altitudePerMinute));		
+	}
+	if  (param == "alt?") {
+		COMPUTER.println(String(lastGPSAltitude));		
 	}
 	if  (param == "apogee?") {
 		COMPUTER.println(String(altitudeOfApogee));
@@ -373,6 +386,32 @@ int computerRequest(String param) {
 
 	if (param == "fwversion?") {
 		COMPUTER.printlnf("Firmware version: %s", System.version().c_str());
+	}
+
+	if (param == "?") {
+		COMPUTER.printlnf("-------------------------.--------------------------");		
+		COMPUTER.printlnf("Status Sentence (1hz):");		
+		COMPUTER.printlnf("LAT,LON,ALT,SPEED,COURSE,SATS,HDOP,BATT,STAGE");		
+		COMPUTER.printlnf("-------------------------.--------------------------");		
+		COMPUTER.printlnf("deboff = Debug Off");
+		COMPUTER.printlnf("debon = Debug On");
+		COMPUTER.printlnf("simon = Start Simulation");
+		COMPUTER.printlnf("simoff = Stop Simulation");
+		COMPUTER.printlnf("reset = Set mission to ground mode");
+		COMPUTER.printlnf("reboot = Reboot Flight Computer");
+		COMPUTER.printlnf("simon = Start Simulation");
+		COMPUTER.printlnf("cellon = Cell Modem On");
+		COMPUTER.printlnf("celloff = Cell Modem Off");
+		COMPUTER.printlnf("celloff = Cell Modem Off");
+		COMPUTER.printlnf("gpsdump = GPS Serial Dump to computer toggle");
+		COMPUTER.printlnf("vsi? = Vertical Speed?");
+		COMPUTER.printlnf("alt? = Altitude in feet?");
+		COMPUTER.printlnf("cell? = Cell Status?");
+		COMPUTER.printlnf("cellconnecting? = Cell Modem attempting to connect?");
+		COMPUTER.printlnf("rssi? = Cell Signal Strength?");
+		COMPUTER.printlnf("cloud? = Is cloud available?");
+		COMPUTER.printlnf("fwversion? = OS Firmware Version?");		
+		COMPUTER.printlnf("-------------------------.--------------------------");
 	}
 
 	return 0;
