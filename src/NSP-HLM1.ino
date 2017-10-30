@@ -401,8 +401,7 @@ int computerRequest(String param) {
 	}
 
 	if (param == "$") {
-		COMPUTER.println(satString());
-		sendStatusToCloud();
+		COMPUTER.println(satString());		
 	}
 
 	if (param == "$$") {
