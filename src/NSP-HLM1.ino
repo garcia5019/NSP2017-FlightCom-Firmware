@@ -390,8 +390,8 @@ int computerRequest(String param) {
 
 	if (param == "?") {
 		COMPUTER.printlnf("-------------------------.--------------------------");		
-		COMPUTER.printlnf("Status Sentence (1hz):");		
-		COMPUTER.printlnf("LAT,LON,ALT,SPEED,COURSE,SATS,HDOP,BATT,STAGE");		
+		COMPUTER.printlnf("Status Sentence (1hz):");
+		COMPUTER.printlnf("TIME,LAT,LON,ALT,SPEED,COURSE,SATS,HDOP,BATT,STAGE");		
 		COMPUTER.printlnf("-------------------------.--------------------------");		
 		COMPUTER.printlnf("deboff = Debug Off");
 		COMPUTER.printlnf("debon = Debug On");
@@ -412,6 +412,7 @@ int computerRequest(String param) {
 		COMPUTER.printlnf("cloud? = Is cloud available?");
 		COMPUTER.printlnf("fwversion? = OS Firmware Version?");		
 		COMPUTER.printlnf("-------------------------.--------------------------");
+		
 	}
 
 	return 0;
