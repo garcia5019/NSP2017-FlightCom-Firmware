@@ -450,6 +450,7 @@ int computerRequest(String param) {
 	}
 	if  (param == "stage?") {
 		sendToComputer(missionStageShortString());
+		return missionStage;
 	}	
 	if  (param == "cell?") {
 		if (Cellular.ready() == true) { 
@@ -467,12 +468,12 @@ int computerRequest(String param) {
 	}
 	if  (param == "cellsignal?") {		
 		CellularSignal sig = Cellular.RSSI();		
-		sendToComputer(sig);
+		sendToComputer(sig);		
 	}	
 
 	if  (param == "cloud?") {
 		if (Particle.connected() == true) { 
-			sendToComputer("YES");
+			sendToComputer("YES");			
 		} else {
 			sendToComputer("NO");
 		}
@@ -489,13 +490,19 @@ int computerRequest(String param) {
 			return 1;
 		}
 		sendToComputer("NO");
-		return false;
+		return 0;
 	}
 
 	if (param == "fwversion?") {
 		TRY_LOCK(COMPUTER) {
 			COMPUTER.printlnf("Firmware version: %s", System.version().c_str());
 		}
+	}
+
+
+	if (param == "bat?") {
+		sendToComputer(String(batteryLevel));		
+		return batteryLevel;
 	}
 
 	if (param == "$") {
@@ -545,6 +552,7 @@ int computerRequest(String param) {
 		COMPUTER.println("cloud? = Is cloud available?");
 		COMPUTER.println("satsignal? = 0-5 Satcom signal strength?");		
 		COMPUTER.println("satenabled? = Is the sat modem enabled?");		
+		COMPUTER.println("bat? = Get battery level?");		
 		COMPUTER.println("fwversion? = OS Firmware Version?");		
 		COMPUTER.println("$ = Print status string");		
 		COMPUTER.println("$$ = Print and send to cell cloud status string");		
