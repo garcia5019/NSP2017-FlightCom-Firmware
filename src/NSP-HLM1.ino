@@ -140,7 +140,7 @@ void second_tick() {
 	if (missionStage == descent) { RGB.color(255,215,0); } //Yellow
 	if (missionStage == recovery) { RGB.color(255,0,255); } //Magenta
 
-	if (elapsedSeconds % 2 == 0 ) { //Pulse LED every 2 seconds
+	if (elapsedSeconds % 2 == 0 ) { //Pulse LED every 2 seconds		
 		RGB.brightness(0);
 	} else {
 		if (debugMode == true) {
@@ -259,6 +259,7 @@ void sendStatusToSat() {
 
 //Helper Functions
 String satString() {	
+	//GPSTIme:
   return String(gpsParser.time.value()) + "," + 
   String(gpsParser.location.lat(), 4) + "," + 
   String(gpsParser.location.lng(), 4) + "," + 
@@ -464,7 +465,7 @@ int computerRequest(String param) {
 			sendToComputer("NO");
 		}
 	}
-	if  (param == "rssi?") {		
+	if  (param == "cellsignal?") {		
 		CellularSignal sig = Cellular.RSSI();		
 		sendToComputer(sig);
 	}	
@@ -540,7 +541,7 @@ int computerRequest(String param) {
 		COMPUTER.println("alt? = Altitude in feet?");
 		COMPUTER.println("cell? = Cell Status?");
 		COMPUTER.println("cellconnecting? = Cell Modem attempting to connect?");
-		COMPUTER.println("rssi? = Cell Signal Strength?");
+		COMPUTER.println("cellsignal? = Cell Signal Strength [RSSI,QUAL] ?");
 		COMPUTER.println("cloud? = Is cloud available?");
 		COMPUTER.println("satsignal? = 0-5 Satcom signal strength?");		
 		COMPUTER.println("satenabled? = Is the sat modem enabled?");		
@@ -558,16 +559,12 @@ int computerRequest(String param) {
 
 void setCellModem(bool value) {		
 	cellModemEnabled = value;
-	if ((cellModemEnabled == true) && (Cellular.ready() == false) && (Cellular.connecting() == false)) {
-		// ATOMIC_BLOCK() {		
+	if ((cellModemEnabled == true) && (Cellular.ready() == false) && (Cellular.connecting() == false)) {		
 			Cellular.on();
 			Cellular.connect();
-			Particle.connect();			
-		// }
+			Particle.connect();					
 		sendToComputer("[Event] Cell Modem ON");
-		getCellSignal();
-		// waitUntil(Particle.connected);
-		// Serial.println("[Event] Cloud ONLINE.");
+		getCellSignal();		
 	} else if (cellModemEnabled == false) {
 		Cellular.off();
 		cellSignalRSSI = -1;
@@ -577,12 +574,10 @@ void setCellModem(bool value) {
 }
 
 void getCellSignal() {
-	if (cellModemEnabled == false) { return; }
-		// SINGLE_THREADED_BLOCK() {
+	if (cellModemEnabled == false) { return; }		
 		CellularSignal cellSignal = Cellular.RSSI();
 		cellSignalRSSI = cellSignal.rssi;
 		cellSignalQuality = cellSignal.qual;
-	// }
 }
 
 void setSatModem(bool value) {	
