@@ -165,8 +165,7 @@ void second_tick() {
 		sendStatusToCloud(); //Send SAT STRING to cloud if connected..		
 	}
 
-	if (elapsedSeconds % 45 == 0) {
-		a60second_tick();
+	if (elapsedSeconds % 45 == 0) {		
 		sendStatusToSat();	
 		batteryLevel = fuel.getSoC(); 		
 		elapsedSeconds = 0;
@@ -479,7 +478,7 @@ int computerRequest(String param) {
 	}	
 	
 	if  (param == "satsignal?") {
-		sendToComputer(satcomSignal);
+		sendToComputer(String(satcomSignal));
 		return satcomSignal;
 	}	
 
