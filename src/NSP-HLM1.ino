@@ -11,6 +11,7 @@
 //MISSION SETTINGS
 bool cellModemEnabled = true;
 bool satModemEnabled = false;
+bool cellMuteEnabled = false;
 
 float altitudeGainClimbTrigger = 20;
 float altitudePerMinuteGainClimbTrigger = 5;
@@ -160,8 +161,7 @@ void second_tick() {
 	}
 
 
-	if (elapsedSeconds % 32 == 0) {
-		getSatSignal();	
+	if (elapsedSeconds % 32 == 0) {		
 		sendStatusToCloud(); //Send SAT STRING to cloud if connected..		
 	}
 
@@ -248,7 +248,7 @@ void updateStage() {
 }
 
 void sendStatusToCloud() {
-	if (Particle.connected() == true) { 		
+	if (Particle.connected() == true && cellMuteEnabled == false) { 		
 		Particle.publish("S",satString());		
 	}
 }
@@ -403,6 +403,14 @@ int computerRequest(String param) {
 		setCellModem(false);
 		return 1;
 	}
+	if (param == "cellmute") {
+		cellMuteEnabled = !cellMuteEnabled;
+		if (cellMuteEnabled == true) {
+			sendToComputer("[Event] CellMute Enabled");
+		} else {
+			sendToComputer("[Event] CellMute Disabled");
+		}
+	}
 	if (param == "saton") {				
 		setSatModem(true);		
 		return 1;
@@ -536,6 +544,7 @@ int computerRequest(String param) {
 		COMPUTER.println("simon = Start Simulation");
 		COMPUTER.println("cellon = Cell Modem On");
 		COMPUTER.println("celloff = Cell Modem Off");
+		COMPUTER.println("cellmute = Do not publish status to Cell Modem");
 		COMPUTER.println("saton = SAT Modem ON");
 		COMPUTER.println("satoff = SAT Modem Off");
 		COMPUTER.println("comoff = All Comunication systems OFF [cell + sat]");
