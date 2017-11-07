@@ -10,8 +10,8 @@
 
 //MISSION SETTINGS
 bool cellModemEnabled = true;
-bool satModemEnabled = false;
-bool cellMuteEnabled = false;
+bool satModemEnabled = true;
+bool cellMuteEnabled = true;
 
 float altitudeGainClimbTrigger = 20;
 float altitudePerMinuteGainClimbTrigger = 5;
@@ -67,6 +67,8 @@ int cellSignalQuality = -1;
 
 String computerSerialData;
 String satSerialData;
+
+String lastSatModemRequest = "";
 
 
 enum MissionStage { 
@@ -161,11 +163,11 @@ void second_tick() {
 	}
 
 
-	if (elapsedSeconds % 32 == 0) {		
+	if (elapsedSeconds % 60 == 0) {		
 		sendStatusToCloud(); //Send SAT STRING to cloud if connected..		
 	}
 
-	if (elapsedSeconds % 45 == 0) {		
+	if (elapsedSeconds % 120 == 0) {		
 		sendStatusToSat();	
 		batteryLevel = fuel.getSoC(); 		
 		elapsedSeconds = 0;
@@ -298,18 +300,27 @@ void SATCOMEvent() {
 				}
 			}
 			if (c == '\r') {				
-				satSerialData = satSerialData.trim();
-				if (satSerialData.substring(0,2) == "OK" && satcomAlive == false) {
-					satcomAlive = true;					
-					sendToComputer("[Event] SatCom Alive");					
-					getSatSignal();
-				}								
+				satSerialData = satSerialData.trim();									
 				if (satSerialData.substring(0,5) == "+CSQ:") {
 					String signal = satSerialData.substring(5);
 					satcomSignal = signal.toInt();										
 				}
+
+				if (satSerialData.substring(0,2) == "OK") {
+					if (satcomAlive == false && satModemEnabled == true && lastSatModemRequest == "AT") {
+						satcomAlive = true;	
+						sendToComputer("[Event] SatCom Alive");	
+						getSatSignal();
+					}
+					
+					if (lastSatModemRequest == "AT+SBDWT=") {
+						SATCOM.println("AT+SBDIX");	 //Do transmit session!					
+					} 
+
+				  lastSatModemRequest = "";						
+				}					
 				
-				satSerialData = "";
+				satSerialData = ""; //Empty Serial Buffer
 			}
 		}	
 }
@@ -407,8 +418,10 @@ int computerRequest(String param) {
 		cellMuteEnabled = !cellMuteEnabled;
 		if (cellMuteEnabled == true) {
 			sendToComputer("[Event] CellMute Enabled");
+			return 1;
 		} else {
 			sendToComputer("[Event] CellMute Disabled");
+			return 0;
 		}
 	}
 	if (param == "saton") {				
@@ -448,13 +461,16 @@ int computerRequest(String param) {
 		return 1;
 	}
 	if  (param == "vsi?") {
-		sendToComputer(String(altitudePerMinute));		
+		sendToComputer(String(altitudePerMinute));	
+		return (int)altitudePerMinute;		
 	}
 	if  (param == "alt?") {
-		sendToComputer(String(lastGPSAltitude));		
+		sendToComputer(String(lastGPSAltitude));
+		return (int)lastGPSAltitude;	
 	}
 	if  (param == "apogee?") {
 		sendToComputer(String(altitudeOfApogee));
+		return (int)altitudeOfApogee;
 	}
 	if  (param == "stage?") {
 		sendToComputer(missionStageShortString());
@@ -476,7 +492,8 @@ int computerRequest(String param) {
 	}
 	if  (param == "cellsignal?") {		
 		CellularSignal sig = Cellular.RSSI();		
-		sendToComputer(sig);		
+		sendToComputer(sig);
+		return sig.rssi;		
 	}	
 
 	if  (param == "cloud?") {
@@ -505,6 +522,7 @@ int computerRequest(String param) {
 		TRY_LOCK(COMPUTER) {
 			COMPUTER.printlnf("Firmware version: %s", System.version().c_str());
 		}
+		return 1;
 	}
 
 
@@ -514,17 +532,20 @@ int computerRequest(String param) {
 	}
 
 	if (param == "$") {
-		sendToComputer(satString());		
+		sendToComputer(satString());
+		return 1;		
 	}
 
 	if (param == "$$") {	
 		sendToComputer("OK");	
-		sendStatusToCloud();		
+		sendStatusToCloud();
+		return 1;		
 	}
 
 	if (param == "$$$") {	
 		sendToComputer("OK");
-		sendStatusToSat();		
+		sendStatusToSat();
+		return 1;
 	}
 
 	
@@ -564,7 +585,7 @@ int computerRequest(String param) {
 		COMPUTER.println("bat? = Get battery level?");		
 		COMPUTER.println("fwversion? = OS Firmware Version?");		
 		COMPUTER.println("$ = Print status string");		
-		COMPUTER.println("$$ = Print and send to cell cloud status string");		
+		COMPUTER.println("$$ = Print and send to CELL cloud status string");		
 		COMPUTER.println("$$$ = Print and send to SAT cloud status string");		
 		COMPUTER.println("-------------------------.--------------------------");
 		}
@@ -602,21 +623,27 @@ void setSatModem(bool value) {
 	satModemEnabled = value;	
 	if (satModemEnabled == false) {   satcomAlive = false; satcomSignal = -1; sendToComputer("[Event] SAT Modem OFF"); return; }	
 	SATCOM.println("AT&K0");
+	lastSatModemRequest = "AT&K0";	
+
 	getSatSignal();	
 }
 
 void getSatSignal() {
 	if (satModemEnabled == false) { return; }				
-		SATCOM.println("AT+CSQ");	
+		SATCOM.println("AT+CSQ");
+		lastSatModemRequest = "AT+CSQ";	
+
 }
 
 void sendTextToSat(String text) {
 	if (satModemEnabled == false) { return; }			
-		SATCOM.println("AT+SBDWT=" + text);	
+		SATCOM.println("AT+SBDWT=" + text + "\r");
+		lastSatModemRequest = "AT+SBDWT=";			
 }
 
 void SatPing() {	
-		SATCOM.println("AT");	
+		SATCOM.println("AT");
+		lastSatModemRequest = "AT";
 }
 
 void sendToComputer(String text) {
