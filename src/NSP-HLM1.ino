@@ -136,9 +136,9 @@ void second_tick() {
 	timer.stopFromISR();
 	elapsedSeconds++;
 	
-	if (missionStage == ground && Cellular.ready() == false) { RGB.color(255,165,0); } //Orange
-	if (missionStage == ground && Cellular.connecting() == true) { RGB.color(50,50,255); } //Whitish
-	if (missionStage == ground && Cellular.ready() == true) { RGB.color(0,255,0); } //Green
+	if (missionStage == ground && !Cellular.ready() ) { RGB.color(255,165,0); } //Orange
+	if (missionStage == ground && Cellular.connecting() ) { RGB.color(50,50,255); } //Whitish
+	if (missionStage == ground && Cellular.ready() ) { RGB.color(0,255,0); } //Green
 	if (missionStage == climb) { RGB.color(0,0,255); } //Blue
 	if (missionStage == descent) { RGB.color(255,215,0); } //Yellow
 	if (missionStage == recovery) { RGB.color(255,0,255); } //Magenta
@@ -153,11 +153,11 @@ void second_tick() {
 	
 
 	if (elapsedSeconds % 9 == 0) {		
-		if (satModemEnabled == true && satcomAlive == false) {			
+		if (satModemEnabled && !satcomAlive ) {			
 			SatPing();
 		}
 
-		if (satModemEnabled == true && satcomAlive == true) {			
+		if (satModemEnabled && satcomAlive ) {			
 			getSatSignal();	
 		}			
 	}
@@ -178,7 +178,7 @@ void second_tick() {
 	updateStage();
 	/////////////////
 
-	if (debugMode == true && gpsDebugDump == false && satDebugDump == false) {		
+	if (debugMode && !gpsDebugDump && !satDebugDump ) {		
 		sendToComputer(satString());		
 	}
 
@@ -207,12 +207,12 @@ void updateStage() {
 	
 	//SIMULATOR////////////
 	if (simulationMode) {
-		if (simulatedClimbEnded == false && (missionStage == ground || missionStage == climb)) {
+		if ( !simulatedClimbEnded && (missionStage == ground || missionStage == climb)) {
 			simulatedAltitude+=50;
 			if (altitudeGain >= simulatedApogeeAltitude) {
 				simulatedClimbEnded = true;	
 			}
-		} else if (simulatedClimbEnded == true) {
+		} else if (simulatedClimbEnded) {
 			simulatedAltitude-=50;
 			if (gpsAltitude <= initialGPSAltitude) {
 				simulatedClimbEnded = false;
@@ -294,7 +294,7 @@ void SATCOMEvent() {
 		while (SATCOM.available()) {			
 			char c = SATCOM.read();	
 			satSerialData = satSerialData + c;								
-			if (satDebugDump==true && gpsDebugDump==false) {
+			if (satDebugDump && !gpsDebugDump) {
 				TRY_LOCK(COMPUTER) {
 					COMPUTER.write(c);
 				}
@@ -307,7 +307,7 @@ void SATCOMEvent() {
 				}
 
 				if (satSerialData.substring(0,2) == "OK") {
-					if (satcomAlive == false && satModemEnabled == true && lastSatModemRequest == "AT") {
+					if (!satcomAlive && satModemEnabled && lastSatModemRequest == "AT") {
 						satcomAlive = true;	
 						sendToComputer("[Event] SatCom Alive");	
 						getSatSignal();
@@ -332,7 +332,7 @@ void GPSEvent()
 		while (GPS.available()) {			
 			char c = GPS.read();			
 			gpsParser.encode(c);
-			if (gpsDebugDump==true && satDebugDump==false) {
+			if ( gpsDebugDump && !satDebugDump ) {
 				TRY_LOCK(COMPUTER) {
 					COMPUTER.print(c);  
 				}
@@ -597,7 +597,7 @@ int computerRequest(String param) {
 
 void setCellModem(bool value) {		
 	cellModemEnabled = value;
-	if ((cellModemEnabled == true) && (Cellular.ready() == false) && (Cellular.connecting() == false)) {		
+	if ((cellModemEnabled ) && (! Cellular.ready())&& (!Cellular.connecting())) {		
 			Cellular.on();
 			Cellular.connect();
 			Particle.connect();					
@@ -612,16 +612,16 @@ void setCellModem(bool value) {
 }
 
 void getCellSignal() {
-	if (cellModemEnabled == false) { return; }		
+	if (!cellModemEnabled) { return; }		
 		CellularSignal cellSignal = Cellular.RSSI();
 		cellSignalRSSI = cellSignal.rssi;
 		cellSignalQuality = cellSignal.qual;
 }
 
 void setSatModem(bool value) {	
-	if (satModemEnabled == false && value == true) {  sendToComputer("[Event] SAT Modem ON"); }
+	if (!satModemEnabled && value) {  sendToComputer("[Event] SAT Modem ON"); }
 	satModemEnabled = value;	
-	if (satModemEnabled == false) {   satcomAlive = false; satcomSignal = -1; sendToComputer("[Event] SAT Modem OFF"); return; }	
+	if (!satModemEnabled) {   satcomAlive = false; satcomSignal = -1; sendToComputer("[Event] SAT Modem OFF"); return; }	
 	SATCOM.println("AT&K0");
 	lastSatModemRequest = "AT&K0";	
 
@@ -629,14 +629,14 @@ void setSatModem(bool value) {
 }
 
 void getSatSignal() {
-	if (satModemEnabled == false) { return; }				
+	if (!satModemEnabled) { return; }				
 		SATCOM.println("AT+CSQ");
 		lastSatModemRequest = "AT+CSQ";	
 
 }
 
 void sendTextToSat(String text) {
-	if (satModemEnabled == false) { return; }			
+	if (!satModemEnabled) { return; }			
 		SATCOM.println("AT+SBDWT=" + text + "\r");
 		lastSatModemRequest = "AT+SBDWT=";			
 }
