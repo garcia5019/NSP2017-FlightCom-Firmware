@@ -10,22 +10,25 @@
 
 //MISSION SETTINGS
 bool cellModemEnabled = true;
-bool satModemEnabled = true;
+bool satModemEnabled = false;
 bool cellMuteEnabled = true;
 
-float altitudeGainClimbTrigger = 20;
-float altitudePerMinuteGainClimbTrigger = 5;
-float altitudeLossPerMinuteForDescentDetection = 20;
+float altitudeGainClimbTrigger = 15; //Minimum alt gain after startup to detect climb.
+float altitudePerMinuteGainClimbTrigger = 50; //ft per minute to detect a climb
+float altitudeLossPerMinuteForDescentDetection = -20;
 float iterationsInLowDescentToTriggerRecovery = 10;
-float minimumAltitudeToTriggerRecovery = 2300;
+float minimumAltitudeToTriggerRecovery = 5000; //If above this level we will not trigger recovery (Should we remove this??)
+float minimumSonarDistanceToConfirmRecovery = 1; //Meters
 
+//ADC PARAMS
+const int ADC_OVERSAMPLE = 5;
 
 //SIM SETTINGS
 bool simulationMode = false;
 bool debugMode = true;
 bool gpsDebugDump = false;
 bool satDebugDump = false;
-float simulatedApogeeAltitude = 1000;
+float simulatedApogeeAltitude = 200;
 //
 
 
@@ -40,9 +43,12 @@ SYSTEM_THREAD(ENABLED);
 #define SATCOMEvent serialEvent5
 
 #define SATCOMEnablePin D2
+#define BUZZERPin D4
+#define SONARPin DAC
 
-Timer timer(1000, second_tick);
+Timer masterTimer(1000, second_tick);
 int elapsedSeconds = 0;
+int lastPeriod = 0;
 
 int recoveryDetectionIterations = 0;
 
@@ -51,7 +57,10 @@ float lastPositiveGPSAltitude = 0.0;
 float lastGPSAltitude = -1.0;
 float altitudePerMinute = 0.0;
 float altitudeOfApogee = -1.0;
+float sonarDistance = -1.0; //In Meters
+
 float simulatedAltitude = 0.0; //For simulation only.
+
 
 //States
 bool simulatedClimbEnded = false;
@@ -75,7 +84,8 @@ enum MissionStage {
 	ground,
 	climb,	
 	descent,
-	recovery
+	recovery,
+	recovery_confirmed
 };
 
 enum GPSState { 
@@ -100,7 +110,12 @@ void setup() {
 	RGB.control(true); 
 	//Setup SATCOM
 	pinMode(SATCOMEnablePin, OUTPUT);	
+	pinMode(BUZZERPin, OUTPUT);	
+	// pinMode(SONARPin, INPUT);
 	digitalWrite(SATCOMEnablePin, HIGH);
+	digitalWrite(BUZZERPin, LOW);
+	
+
 	//CONNECT TO GPS
 	GPS.begin(57600);
 	//CONNECT TO COMPUTER VIA USB
@@ -120,22 +135,18 @@ void setup() {
 	SATCOM.begin(19200, SERIAL_8N1);
 	setSatModem(satModemEnabled);
 	//Start the basic timed events
-	timer.start();	
+	masterTimer.start();	
 	//READ INITIAL POWER LEFT In Battery
 	batteryLevel = fuel.getSoC();	
 	sendToComputer("[Stage] Ground ");	
 
 }
 
-void loop() {} //
+void loop() {
 
 
-//TIMED EVENTS
-//This will happen every second.
-void second_tick() {
-	timer.stopFromISR();
-	elapsedSeconds++;
-	
+	if (elapsedSeconds != lastPeriod) {
+
 	if (missionStage == ground && Cellular.ready() == false) { RGB.color(255,165,0); } //Orange
 	if (missionStage == ground && Cellular.connecting() == true) { RGB.color(50,50,255); } //Whitish
 	if (missionStage == ground && Cellular.ready() == true) { RGB.color(0,255,0); } //Green
@@ -143,15 +154,19 @@ void second_tick() {
 	if (missionStage == descent) { RGB.color(255,215,0); } //Yellow
 	if (missionStage == recovery) { RGB.color(255,0,255); } //Magenta
 
-	if (elapsedSeconds % 2 == 0 ) { //Pulse LED every 2 seconds		
-		RGB.brightness(0);
-	} else {
-		if (debugMode == true) {
-			RGB.brightness(100);
-		}
-	}
 	
 
+	
+
+	if (elapsedSeconds % 2 == 0 ) { //LEDS					
+		RGB.brightness(0);				
+	} else {				
+		if (debugMode == true) {
+			RGB.brightness(100);
+		}		
+	}
+	
+	
 	if (elapsedSeconds % 9 == 0) {		
 		if (satModemEnabled == true && satcomAlive == false) {			
 			SatPing();
@@ -172,20 +187,51 @@ void second_tick() {
 		batteryLevel = fuel.getSoC(); 		
 		elapsedSeconds = 0;
 	}
+
+
+	
+		signalFlareCheck();		
+		updateStage();
+
+		sonarDistance = readSonarDistance();
  	
-
-	//Second Updates////////////	(State machine manager will update the stage)
-	updateStage();
-	/////////////////
-
-	if (debugMode == true && gpsDebugDump == false && satDebugDump == false) {		
-		sendToComputer(satString());		
+	 	if (debugMode == true && gpsDebugDump == false && satDebugDump == false && simulationMode == false) {
+			sendToComputer(satString());		
+		}
 	}
 
 	
 
-	timer.startFromISR();		
+	//Second Updates////////////	(State machine manager will update the stage)
+	
+	/////////////////
+
+	lastPeriod = elapsedSeconds;
+
+
+} //
+
+
+//TIMED EVENTS
+//This will happen every second.
+void second_tick() {
+	// masterTimer.stopFromISR();
+	elapsedSeconds++;			
+	// masterTimer.startFromISR();		
 }
+
+
+void signalFlareCheck() {
+	if (missionStage == recovery_confirmed) {
+		if (elapsedSeconds % 2 == 0) {			
+				digitalWrite(BUZZERPin, HIGH);										
+			} else {			
+				digitalWrite(BUZZERPin, LOW);						
+		}
+	}
+}
+
+
 
 
 //State Updater
@@ -205,22 +251,33 @@ void updateStage() {
 	lastGPSAltitude = gpsAltitude;
 
 	
-	//SIMULATOR////////////
+	//SIMULATOR>>>////////////
 	if (simulationMode) {
 		if (simulatedClimbEnded == false && (missionStage == ground || missionStage == climb)) {
-			simulatedAltitude+=50;
+			simulatedAltitude+=random(5, 8); //Between 300/480ft per minute
 			if (altitudeGain >= simulatedApogeeAltitude) {
 				simulatedClimbEnded = true;	
 			}
 		} else if (simulatedClimbEnded == true) {
-			simulatedAltitude-=50;
+			simulatedAltitude-=random(5, 17); //Between -600/-1000ft per minute
 			if (gpsAltitude <= initialGPSAltitude) {
 				simulatedClimbEnded = false;
 			}
 		} 
-	} 
-	//SIMULATOR////////////
 
+		// if (debugMode == true) {
+			COMPUTER.print("[SIMULATOR] Altitude: " + String(gpsAltitude));
+			COMPUTER.print("ft | VSI: " + String(altitudePerMinute));			
+			COMPUTER.print("ftxmin | TREND: " + String(altitudeTrend));
+			COMPUTER.println(" | GAIN: " + String(altitudeGain) + " ft");
+
+			// if (missionStage == recovery) {
+			// 	simulationMode = false;
+			// 	sendToComputer("[SIMULATOR] Simulation Ended");
+			// }
+		// }
+	} 
+	//<<<<SIMULATOR////////////
 
 	//State Machine
 	if ((missionStage == ground && initialGPSAltitude > 0) && (altitudeGain > altitudeGainClimbTrigger) && (altitudePerMinute > altitudePerMinuteGainClimbTrigger)) {
@@ -240,12 +297,16 @@ void updateStage() {
 		recoveryDetectionIterations++;
 		if (recoveryDetectionIterations >= iterationsInLowDescentToTriggerRecovery) {			
 			missionStage = recovery;			
-			sendToComputer("[Stage] Recovery Detected at " + String(gpsAltitude));				
+			sendToComputer("[Stage] Recovery Detected at " + String(gpsAltitude));		
 		}
-	} 
+	}
 
-
-	
+	if (missionStage == recovery)  {		
+		if (sonarDistance <= minimumSonarDistanceToConfirmRecovery) {
+			missionStage = recovery_confirmed;
+			sendToComputer("[Stage] Recovery Confirmed at " + String(sonarDistance));
+		}
+	}	
 	
 }
 
@@ -259,10 +320,46 @@ void sendStatusToSat() {
 	sendTextToSat(satString());
 }
 
+float readSonarDistance() {	
+	float rawAnalog = 0;
+	
+	for (int i = 0; i < ADC_OVERSAMPLE; i++) { //Do several samples and then average them.
+	 rawAnalog += analogRead(SONARPin);	
+	}
+
+	rawAnalog = rawAnalog / ADC_OVERSAMPLE;
+
+	float Vm = (rawAnalog * 0.8); //Measured Voltage (MILI VOLTS) [0.000805] [0.8]
+	float Vi =  6.44; //0.00322 //3.222
+	float m = ((Vm/Vi) * 2.54) / 100;    //Inches to cm || to meters
+
+	return m;
+}
+
+
+String gpsTimeFormatted() {
+	String hour = String(gpsParser.time.hour());
+	String minute = String(gpsParser.time.minute());
+	String second = String(gpsParser.time.second());
+
+	if (hour.length() == 1) {
+		hour = "0" + String(gpsParser.time.hour());
+	} 
+
+	if (minute.length() == 1) {
+		minute = "0" + String(gpsParser.time.minute());
+	} 
+
+	if (second.length() == 1) {
+		second = "0" + String(gpsParser.time.second());
+	} 	
+
+	return hour + minute + second;
+}
 //Helper Functions
 String satString() {	
-	//GPSTIme:
-  return String(gpsParser.time.value()) + "," + 
+	//GPSTIme: HHMMSSCC format
+  return gpsTimeFormatted() + "," + 
   String(gpsParser.location.lat(), 4) + "," + 
   String(gpsParser.location.lng(), 4) + "," + 
   String(gpsParser.altitude.feet(),0) + "," + 
@@ -316,6 +413,11 @@ void SATCOMEvent() {
 					if (lastSatModemRequest == "AT+SBDWT=") {
 						SATCOM.println("AT+SBDIX");	 //Do transmit session!					
 					} 
+
+					if (lastSatModemRequest == "AT&K0") {
+						// SATCOM.println("ATE0"); //Echo Off
+						// lastSatModemRequest == "ATE0";
+					}
 
 				  lastSatModemRequest = "";						
 				}					
@@ -381,7 +483,7 @@ int computerRequest(String param) {
 		return 1;
 	}
 	if  (param == "simon") {
-		simulationMode = true;
+		simulationMode = true;		
 		sendToComputer("OK");
 		return 1;
 	}
@@ -460,6 +562,32 @@ int computerRequest(String param) {
 		getCellSignal();
 		return 1;
 	}
+	if (param == "buzzeron") {		
+		digitalWrite(BUZZERPin, HIGH);		
+		return 1;
+	}
+	if (param == "buzzeroff") {		
+		digitalWrite(BUZZERPin, LOW);		
+		return 1;
+	}	
+	if (param == "buzzerchirp") {				
+		digitalWrite(BUZZERPin, HIGH);
+		delay(1000);
+		digitalWrite(BUZZERPin, LOW);		
+		return 1;
+	}
+	if (param == "resetinitialaltitude") {				
+		initialGPSAltitude = gpsParser.altitude.feet();
+		return initialGPSAltitude;
+	}
+	if (param == "gonogo?") {		
+		return performPreflightCheck();
+	}
+
+	if (param == "initialaltitude?") {		
+		sendToComputer(String(initialGPSAltitude));
+		return initialGPSAltitude;
+	}		
 	if  (param == "vsi?") {
 		sendToComputer(String(altitudePerMinute));	
 		return (int)altitudePerMinute;		
@@ -525,10 +653,14 @@ int computerRequest(String param) {
 		return 1;
 	}
 
-
 	if (param == "bat?") {
 		sendToComputer(String(batteryLevel));		
 		return batteryLevel;
+	}
+
+	if (param == "sonar?") {
+		sendToComputer(String(sonarDistance) + " meters");
+		return int(sonarDistance*100); //meters to centimeters and int
 	}
 
 	if (param == "$") {
@@ -574,25 +706,83 @@ int computerRequest(String param) {
 		COMPUTER.println("satdump = SATCOM Serial Dump to computer toggle");
 		COMPUTER.println("querysatsignal = Send a request to the satelite modem to get sat signal");
 		COMPUTER.println("querycellsignal = Send a request to the cellular modem to get RSSI signal");
+		COMPUTER.println("buzzeron = Turn Buzzer ON");
+		COMPUTER.println("buzzeroff = Turn Buzzer ON");
+		COMPUTER.println("buzzerchirp = Chirp the buzzer");
+		COMPUTER.println("resetinitialaltitude = Set the initial altitude to current altitude");
+		COMPUTER.println("gonogo? = Go no Go for launch");
+		COMPUTER.println("initialaltitude? = Get the initial altitude set uppon gps fix");
 		COMPUTER.println("vsi? = Vertical Speed?");
 		COMPUTER.println("alt? = Altitude in feet?");
-		COMPUTER.println("cell? = Cell Status?");
+		COMPUTER.println("cell? = Cell Status?");		
 		COMPUTER.println("cellconnecting? = Cell Modem attempting to connect?");
 		COMPUTER.println("cellsignal? = Cell Signal Strength [RSSI,QUAL] ?");
 		COMPUTER.println("cloud? = Is cloud available?");
 		COMPUTER.println("satsignal? = 0-5 Satcom signal strength?");		
 		COMPUTER.println("satenabled? = Is the sat modem enabled?");		
 		COMPUTER.println("bat? = Get battery level?");		
+		COMPUTER.println("sonar? = Get the sonar distance in meters. (cm for cell)");
 		COMPUTER.println("fwversion? = OS Firmware Version?");		
 		COMPUTER.println("$ = Print status string");		
 		COMPUTER.println("$$ = Print and send to CELL cloud status string");		
 		COMPUTER.println("$$$ = Print and send to SAT cloud status string");		
 		COMPUTER.println("-------------------------.--------------------------");
 		}
-
 	}
 
 	return 0;
+}
+
+int performPreflightCheck() {
+	if (initialGPSAltitude == -1) {
+			sendToComputer("NO GO - MISSING INITIAL ALTITUDE");
+			return -1;
+		}
+		
+		if (missionStage != ground) {
+			sendToComputer("NO GO - STAGE NOT IN GOUND MODE");
+			return -2;
+		}
+
+		if (gpsParser.hdop.value() > 300) {
+			sendToComputer("NO GO - GPS PRECISION OUT OF RANGE");
+			return -3;
+		}
+
+		if (batteryLevel < 80) {
+			sendToComputer("NO GO - LOW BATTERY FOR LAUNCH");
+			return -4;	
+		}
+
+		if (sonarDistance > 10) {
+			sendToComputer("NO GO - SONAR TEST FAILED");
+			return -5;	
+		}	
+
+
+		if (satModemEnabled == false) {
+			sendToComputer("NO GO - SAT MODEM IS OFF");
+			return -6;	
+		}
+
+		if (cellModemEnabled == false) {
+			sendToComputer("NO GO - CELL MODEM IS OFF");
+			return -7;	
+		}
+
+		if (satcomSignal < 3) {
+			sendToComputer("NO GO - NOT ENOUGH SATELITES FOR LAUNCH");
+			return -8;	
+		}
+
+		getCellSignal();
+		if (cellSignalRSSI <= 0 || cellSignalQuality <= 0) {
+			sendToComputer("NO GO - NOT ENOUGH CELL SIGNAL FOR LAUNCH");
+			return -9;	
+		}
+
+		sendToComputer("GO FOR LAUNCH");
+		return 1;
 }
 
 void setCellModem(bool value) {		
@@ -622,7 +812,7 @@ void setSatModem(bool value) {
 	if (satModemEnabled == false && value == true) {  sendToComputer("[Event] SAT Modem ON"); }
 	satModemEnabled = value;	
 	if (satModemEnabled == false) {   satcomAlive = false; satcomSignal = -1; sendToComputer("[Event] SAT Modem OFF"); return; }	
-	SATCOM.println("AT&K0");
+	SATCOM.println("AT&K0");		
 	lastSatModemRequest = "AT&K0";	
 
 	getSatSignal();	
@@ -651,6 +841,3 @@ void sendToComputer(String text) {
 		COMPUTER.println(text);
 	}
 }
-
-
-
