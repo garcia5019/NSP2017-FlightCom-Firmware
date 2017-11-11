@@ -46,11 +46,11 @@ SYSTEM_THREAD(ENABLED);
 #define BUZZERPin D4
 #define SONARPin DAC
 
-Timer masterTimer(1000, second_tick);
-int elapsedSeconds = 0;
-int lastPeriod = 0;
+// Timer masterTimer(1000, second_tick);
+uint elapsedSeconds = 0;
+uint lastCycleTime = 0;
 
-int recoveryDetectionIterations = 0;
+uint recoveryDetectionIterations = 0;
 
 float initialGPSAltitude = -1.0;
 float lastPositiveGPSAltitude = 0.0;
@@ -76,7 +76,6 @@ int cellSignalQuality = -1;
 
 String computerSerialData;
 String satSerialData;
-
 String lastSatModemRequest = "";
 
 
@@ -135,7 +134,7 @@ void setup() {
 	SATCOM.begin(19200, SERIAL_8N1);
 	setSatModem(satModemEnabled);
 	//Start the basic timed events
-	masterTimer.start();	
+	// masterTimer.start();	
 	//READ INITIAL POWER LEFT In Battery
 	batteryLevel = fuel.getSoC();	
 	sendToComputer("[Stage] Ground ");	
@@ -144,82 +143,81 @@ void setup() {
 
 void loop() {
 
+	uint currentTime = millis(); //Get the time since boot.
+	uint currentPeriod = currentTime - lastCycleTime; //Calculate elapsed time since last loop.
 
-	if (elapsedSeconds != lastPeriod) {
-
-	if (missionStage == ground && Cellular.ready() == false) { RGB.color(255,165,0); } //Orange
-	if (missionStage == ground && Cellular.connecting() == true) { RGB.color(50,50,255); } //Whitish
-	if (missionStage == ground && Cellular.ready() == true) { RGB.color(0,255,0); } //Green
-	if (missionStage == climb) { RGB.color(0,0,255); } //Blue
-	if (missionStage == descent) { RGB.color(255,215,0); } //Yellow
-	if (missionStage == recovery) { RGB.color(255,0,255); } //Magenta
-
-	
-
-	
-
-	if (elapsedSeconds % 2 == 0 ) { //LEDS					
-		RGB.brightness(0);				
-	} else {				
-		if (debugMode == true) {
-			RGB.brightness(100);
-		}		
-	}
-	
-	
-	if (elapsedSeconds % 9 == 0) {		
-		if (satModemEnabled == true && satcomAlive == false) {			
-			SatPing();
-		}
-
-		if (satModemEnabled == true && satcomAlive == true) {			
-			getSatSignal();	
-		}			
-	}
-
-
-	if (elapsedSeconds % 60 == 0) {		
-		sendStatusToCloud(); //Send SAT STRING to cloud if connected..		
-	}
-
-	if (elapsedSeconds % 120 == 0) {		
-		sendStatusToSat();	
-		batteryLevel = fuel.getSoC(); 		
-		elapsedSeconds = 0;
-	}
-
-
-	
+	if (currentPeriod >	1000) { //Every Second
+		elapsedSeconds++;
+		setMissionIndicators();		
+		satcomKeepAlive();
+		sendDataToCloud();		
 		signalFlareCheck();		
 		updateStage();
+		updateLocalSensors();
+		doDebugToComputer();		
 
-		sonarDistance = readSonarDistance();
- 	
-	 	if (debugMode == true && gpsDebugDump == false && satDebugDump == false && simulationMode == false) {
-			sendToComputer(satString());		
-		}
+		lastCycleTime = currentTime; //Reset lastCycleTime for performing the next cycle calculation.
 	}
 
+	if (elapsedSeconds >= 400) { elapsedSeconds = 0; } //Prevent overflow
 	
+} 
 
-	//Second Updates////////////	(State machine manager will update the stage)
-	
-	/////////////////
+// ==========================================================
+// PERIODIC TASKS
+// ==========================================================
+void setMissionIndicators() {
 
-	lastPeriod = elapsedSeconds;
+		if (missionStage == ground && Cellular.ready() == false) { RGB.color(255,165,0); } //Orange
+		if (missionStage == ground && Cellular.connecting() == true) { RGB.color(50,50,255); } //Whitish
+		if (missionStage == ground && Cellular.ready() == true) { RGB.color(0,255,0); } //Green
+		if (missionStage == climb) { RGB.color(0,0,255); } //Blue
+		if (missionStage == descent) { RGB.color(255,215,0); } //Yellow
+		if (missionStage == recovery) { RGB.color(255,0,255); } //Magenta
 
 
-} //
-
-
-//TIMED EVENTS
-//This will happen every second.
-void second_tick() {
-	// masterTimer.stopFromISR();
-	elapsedSeconds++;			
-	// masterTimer.startFromISR();		
+		if (elapsedSeconds % 2 == 0 ) { //LEDS					
+			RGB.brightness(0);				
+		} else {				
+			if (debugMode == true) {
+				RGB.brightness(100);
+			}		
+		}
 }
 
+void satcomKeepAlive() {
+	if (elapsedSeconds % 9 == 0) {		
+			if (satModemEnabled == true && satcomAlive == false) {			
+				SatPing();
+			}
+
+			if (satModemEnabled == true && satcomAlive == true) {			
+				getSatSignal();	
+			}			
+		}
+}
+
+void sendDataToCloud() {
+	if (elapsedSeconds % 60 == 0) {		
+			sendStatusToCloud(); //Send SAT STRING to cloud if connected..		
+		}
+
+		if (elapsedSeconds % 120 == 0) {		
+			sendStatusToSat();	
+			batteryLevel = fuel.getSoC(); 		
+			elapsedSeconds = 0;
+		}
+}
+
+void updateLocalSensors() {
+	sonarDistance = readSonarDistance();
+}
+
+void doDebugToComputer() {		 	
+ 	if (debugMode == true && gpsDebugDump == false && satDebugDump == false && simulationMode == false) {
+		sendToComputer(telemetryString());		
+	}
+}
 
 void signalFlareCheck() {
 	if (missionStage == recovery_confirmed) {
@@ -232,9 +230,9 @@ void signalFlareCheck() {
 }
 
 
-
-
-//State Updater
+// ==========================================================
+// STATE MACHINE 
+// ==========================================================
 void updateStage() {
 
 	float gpsAltitude = gpsParser.altitude.feet() + simulatedAltitude;	
@@ -310,16 +308,10 @@ void updateStage() {
 	
 }
 
-void sendStatusToCloud() {
-	if (Particle.connected() == true && cellMuteEnabled == false) { 		
-		Particle.publish("S",satString());		
-	}
-}
 
-void sendStatusToSat() {	
-	sendTextToSat(satString());
-}
-
+// ==========================================================
+// LOCAL SENSORS &  PERIPHERALS
+// ==========================================================
 float readSonarDistance() {	
 	float rawAnalog = 0;
 	
@@ -336,7 +328,15 @@ float readSonarDistance() {
 	return m;
 }
 
+void setupBatteryCharger() {
+	PMIC pmic; //Initalize the PMIC class so you can call the Power Management functions below. 
+	pmic.setChargeCurrent(0,0,1,0,0,0); //Set charging current to 1024mA (512 + 512 offset)
+	pmic.setInputCurrentLimit(2000);
+}
 
+// ==========================================================
+// HELPER FUNCTIONS
+// ==========================================================
 String gpsTimeFormatted() {
 	String hour = String(gpsParser.time.hour());
 	String minute = String(gpsParser.time.minute());
@@ -356,22 +356,7 @@ String gpsTimeFormatted() {
 
 	return hour + minute + second;
 }
-//Helper Functions
-String satString() {	
-	//GPSTIme: HHMMSSCC format
-  return gpsTimeFormatted() + "," + 
-  String(gpsParser.location.lat(), 4) + "," + 
-  String(gpsParser.location.lng(), 4) + "," + 
-  String(gpsParser.altitude.feet(),0) + "," + 
-  String(gpsParser.speed.knots(),0) + "," +
-   String(gpsParser.course.deg(),0) + "," + 
-   String(gpsParser.satellites.value()) + "," + 
-   String(gpsParser.hdop.value()) +  "," +    
-   String(batteryLevel/10,0) +  "," + 
-   String(satcomSignal) +  "," +    
-   missionStageShortString();
 
-}
 
 String missionStageShortString() {
 	if (missionStage == ground)  { return "G"; }
@@ -380,13 +365,16 @@ String missionStageShortString() {
 	if (missionStage == recovery)  { return "R"; }
 }
 
-void setupBatteryCharger() {
-	PMIC pmic; //Initalize the PMIC class so you can call the Power Management functions below. 
-	pmic.setChargeCurrent(0,0,1,0,0,0); //Set charging current to 1024mA (512 + 512 offset)
-	pmic.setInputCurrentLimit(2000);
+void sendToComputer(String text) {
+	TRY_LOCK(COMPUTER) {	
+		COMPUTER.println(text);
+	}
 }
 
 
+// ==========================================================
+// INTERRUPT BASED SERIAL COM (CALLBACKS)
+// ==========================================================
 void SATCOMEvent() {	
 		while (SATCOM.available()) {			
 			char c = SATCOM.read();	
@@ -427,7 +415,6 @@ void SATCOMEvent() {
 		}	
 }
 
-// LISTENING EVENTS
 void GPSEvent()
 {	
 	if (GPS.available()) {
@@ -470,6 +457,9 @@ void computerEvent()
 }
 
 
+// ==========================================================
+// REMOTE CONTROL
+// ==========================================================
 int computerRequest(String param) {	
 	
 	if  (param == "deboff") {
@@ -664,7 +654,7 @@ int computerRequest(String param) {
 	}
 
 	if (param == "$") {
-		sendToComputer(satString());
+		sendToComputer(telemetryString());
 		return 1;		
 	}
 
@@ -785,6 +775,35 @@ int performPreflightCheck() {
 		return 1;
 }
 
+// ==========================================================
+// TELEMETRY - MODEMS - CONTROL
+// ==========================================================
+void sendStatusToCloud() {
+	if (Particle.connected() == true && cellMuteEnabled == false) { 		
+		Particle.publish("S",telemetryString());		
+	}
+}
+
+void sendStatusToSat() {	
+	sendTextToSat(telemetryString());
+}
+
+String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY
+	//GPSTIme: HHMMSSCC format
+  return gpsTimeFormatted() + "," + 
+  String(gpsParser.location.lat(), 4) + "," + 
+  String(gpsParser.location.lng(), 4) + "," + 
+  String(gpsParser.altitude.feet(),0) + "," + 
+  String(gpsParser.speed.knots(),0) + "," +
+   String(gpsParser.course.deg(),0) + "," + 
+   String(gpsParser.satellites.value()) + "," + 
+   String(gpsParser.hdop.value()) +  "," +    
+   String(batteryLevel/10,0) +  "," + 
+   String(satcomSignal) +  "," +    
+   missionStageShortString();
+
+}
+
 void setCellModem(bool value) {		
 	cellModemEnabled = value;
 	if ((cellModemEnabled == true) && (Cellular.ready() == false) && (Cellular.connecting() == false)) {		
@@ -836,8 +855,3 @@ void SatPing() {
 		lastSatModemRequest = "AT";
 }
 
-void sendToComputer(String text) {
-	TRY_LOCK(COMPUTER) {	
-		COMPUTER.println(text);
-	}
-}
