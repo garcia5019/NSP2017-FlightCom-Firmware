@@ -1,57 +1,66 @@
 /*
- * Project NSP-HLM1
- * Description: Near Space Program @ ASFM
- * Author: NSP Team
+ * Project HLM_FLIGHT_COMPUTER
+ * Description: HLM1 High Altitude Weather Balloon Flight Computer
+ * Author: ASFM HLM STEM LAB - 2017 Near Space Team
+ * License: MIT Open Source
  * Date: October/2017
  */
 
 #include "TinyGPS++.h"
 #include "Serial5/Serial5.h"
 
-//MISSION SETTINGS
-bool cellModemEnabled = true;
-bool satModemEnabled = false;
-bool cellMuteEnabled = true;
+//====[SETTINGS]=================================================
+bool cellModemEnabled = true;  //NO CONST!
+bool satModemEnabled = true;  //NO CONST!
+bool cellMuteEnabled = true;   //NO CONST!
+bool satMuteEnabled = true;   //NO CONST!
 
-float altitudeGainClimbTrigger = 15; //Minimum alt gain after startup to detect climb.
-float altitudePerMinuteGainClimbTrigger = 50; //ft per minute to detect a climb
-float altitudeLossPerMinuteForDescentDetection = -20;
-float iterationsInLowDescentToTriggerRecovery = 10;
-float minimumAltitudeToTriggerRecovery = 5000; //If above this level we will not trigger recovery (Should we remove this??)
-float minimumSonarDistanceToConfirmRecovery = 1; //Meters
+const float altitudeGainClimbTrigger = 15; //Minimum alt gain after startup to detect climb.
+const float altitudePerMinuteGainClimbTrigger = 50; //ft per minute to detect a climb
+const float altitudeLossPerMinuteForDescentDetection = -20;
+const float iterationsInLowDescentToTriggerRecovery = 10;
+const float minimumAltitudeToTriggerRecovery = 5000; //If above this level we will not trigger recovery (Should we remove this??)
+const float minimumSonarDistanceToConfirmRecovery = 1; //Meters
+const uint periodBetweenCellularReports = 15;
+const uint periodBetweenSatelliteReports = 30;
+bool debugMode = true;  //NO CONST!
 
-//ADC PARAMS
-const int ADC_OVERSAMPLE = 5;
+//ADC PARAMS FOR SENSOR READINGS
+const int ADC_OVERSAMPLE = 5; //Number of samples to take before making an accurate reading (average)
 
-//SIM SETTINGS
+
+//SIMULATION SETTINGS >>>>>>
 bool simulationMode = false;
-bool debugMode = true;
 bool gpsDebugDump = false;
 bool satDebugDump = false;
 float simulatedApogeeAltitude = 200;
-//
+//<<<<<<
 
-
+//PARTICLE SYSTEM PARAMS
 SYSTEM_MODE(SEMI_AUTOMATIC);
 SYSTEM_THREAD(ENABLED);
 
+
+
+//====[MACROS]====================================================
 #define GPS Serial1
 #define COMPUTER Serial
 #define GPSEvent serialEvent1
 #define computerEvent serialEvent
 #define SATCOM Serial5
 #define SATCOMEvent serialEvent5
-
 #define SATCOMEnablePin D2
 #define BUZZERPin D4
 #define SONARPin DAC
 
-// Timer masterTimer(1000, second_tick);
+//====[VARIABLES]=================================================
+//## DO NOT MODIFY
+//## 
+uint celTelemetryTurn = 0;
+uint satTelemetryTurn = 0;
 uint elapsedSeconds = 0;
 uint lastCycleTime = 0;
-
 uint recoveryDetectionIterations = 0;
-
 float initialGPSAltitude = -1.0;
 float lastPositiveGPSAltitude = 0.0;
 float lastGPSAltitude = -1.0;
@@ -98,12 +107,16 @@ TinyGPSPlus gpsParser;
 MissionStage missionStage = ground;
 GPSState gpsState = unknown;
 
-int loopx = 50;
 
-//CLOUD FUNCTIONS
+//====[PARTICLE CLOUD FNs]=================================
 bool success = Particle.function("c", computerRequest);
 
+//##########.##########.##########.##########.##########.#########.#########.#########.#########.#########.#########.#########.#########
 
+//====[MAIN PGM]==========================================
+// ##
+// ##
+// ##
 void setup() {
 	//TAKE CONTROL OF THE RGB LED ONBOARD
 	RGB.control(true); 
@@ -142,24 +155,28 @@ void setup() {
 }
 
 void loop() {
-
 	uint currentTime = millis(); //Get the time since boot.
 	uint currentPeriod = currentTime - lastCycleTime; //Calculate elapsed time since last loop.
+
+
+	if (currentPeriod > 500) { //Every half a second
+		//getExternalSensorData(); //TODO
+		//writeDataToSDCard(); //TODO
+		signalFlareCheck();
+	}
 
 	if (currentPeriod >	1000) { //Every Second
 		elapsedSeconds++;
 		setMissionIndicators();		
 		satcomKeepAlive();
-		sendDataToCloud();		
-		signalFlareCheck();		
+		sendDataToCloud();				
 		updateStage();
 		updateLocalSensors();
-		doDebugToComputer();		
-
+		doDebugToComputer();				
 		lastCycleTime = currentTime; //Reset lastCycleTime for performing the next cycle calculation.
 	}
 
-	if (elapsedSeconds >= 400) { elapsedSeconds = 0; } //Prevent overflow
+	if (elapsedSeconds >= 240) { elapsedSeconds = 0; } //Prevent overflow
 	
 } 
 
@@ -198,19 +215,31 @@ void satcomKeepAlive() {
 }
 
 void sendDataToCloud() {
-	if (elapsedSeconds % 60 == 0) {		
-			sendStatusToCloud(); //Send SAT STRING to cloud if connected..		
+	if (elapsedSeconds % periodBetweenCellularReports == 0) { //CELLULAR
+		if (celTelemetryTurn == 0) {
+			sendStatusToCell(); //Send STAT STRING to cloud via CELL if connected..			
+			celTelemetryTurn = 1;
+		} else {
+			sendExtendedDataToCell();
+			celTelemetryTurn = 0;
 		}
+	}
 
-		if (elapsedSeconds % 120 == 0) {		
-			sendStatusToSat();	
-			batteryLevel = fuel.getSoC(); 		
-			elapsedSeconds = 0;
-		}
+	if (elapsedSeconds % periodBetweenSatelliteReports == 0) {	//SATELLITE
+		if (satTelemetryTurn == 0) {
+				sendStatusToSat();
+				satTelemetryTurn = 1;
+			} else {
+				sendExtendedDataToSat();			
+				satTelemetryTurn = 0;
+		}		
+	}
 }
 
 void updateLocalSensors() {
 	sonarDistance = readSonarDistance();
+	batteryLevel = fuel.getSoC();
+	//TODO: Temperature
 }
 
 void doDebugToComputer() {		 	
@@ -516,6 +545,16 @@ int computerRequest(String param) {
 			return 0;
 		}
 	}
+	if (param == "satmute") {
+		satMuteEnabled = !satMuteEnabled;
+		if (satMuteEnabled == true) {
+			sendToComputer("[Event] SatMute Enabled");
+			return 1;
+		} else {
+			sendToComputer("[Event] SatMute Disabled");
+			return 0;
+		}
+	}
 	if (param == "saton") {				
 		setSatModem(true);		
 		return 1;
@@ -658,15 +697,43 @@ int computerRequest(String param) {
 		return 1;		
 	}
 
-	if (param == "$$") {	
-		sendToComputer("OK");	
-		sendStatusToCloud();
+	if (param == "x$") {
+		sendToComputer(exTelemetryString());
 		return 1;		
 	}
+
+	if (param == "$$") {	
+		sendToComputer("OK");	
+		sendStatusToCell();		
+		return 1;		
+	}	
+
+	if (param == "x$$") {	
+		sendToComputer("OK");	
+		sendExtendedDataToCell();
+		return 1;		
+	}	
 
 	if (param == "$$$") {	
 		sendToComputer("OK");
 		sendStatusToSat();
+		sendStatusToCell();
+		return 1;
+	}
+
+
+	if (param == "x$$$") {	
+		sendToComputer("OK");
+		sendExtendedDataToSat();
+		return 1;
+	}
+
+	if (param == "$$$$") {	
+		sendToComputer("OK");
+		sendStatusToCell();
+		sendExtendedDataToCell();
+		sendStatusToSat();
+		sendExtendedDataToSat();
 		return 1;
 	}
 
@@ -687,7 +754,8 @@ int computerRequest(String param) {
 		COMPUTER.println("simon = Start Simulation");
 		COMPUTER.println("cellon = Cell Modem On");
 		COMPUTER.println("celloff = Cell Modem Off");
-		COMPUTER.println("cellmute = Do not publish status to Cell Modem");
+		COMPUTER.println("cellmute = Toggle Cell Reporting");
+		COMPUTER.println("satmute = Toggle Sat Reporting");
 		COMPUTER.println("saton = SAT Modem ON");
 		COMPUTER.println("satoff = SAT Modem Off");
 		COMPUTER.println("comoff = All Comunication systems OFF [cell + sat]");
@@ -720,7 +788,7 @@ int computerRequest(String param) {
 		}
 	}
 
-	return 0;
+	return -99;
 }
 
 int performPreflightCheck() {
@@ -778,19 +846,34 @@ int performPreflightCheck() {
 // ==========================================================
 // TELEMETRY - MODEMS - CONTROL
 // ==========================================================
-void sendStatusToCloud() {
+void sendStatusToCell() {
 	if (Particle.connected() == true && cellMuteEnabled == false) { 		
 		Particle.publish("S",telemetryString());		
 	}
 }
 
-void sendStatusToSat() {	
-	sendTextToSat(telemetryString());
+
+void sendStatusToSat() {
+	if (satMuteEnabled == false) {	
+		sendTextToSat(telemetryString());
+	}
+}
+
+void sendExtendedDataToSat() {
+	if (satMuteEnabled == false) {	
+		sendTextToSat(exTelemetryString());
+	}
+}
+
+void sendExtendedDataToCell() {
+	if (Particle.connected() == true && cellMuteEnabled == false) { 		
+		Particle.publish("S",exTelemetryString());
+	}
 }
 
 String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY
 	//GPSTIme: HHMMSSCC format
-  return gpsTimeFormatted() + "," + 
+  String value =  "S," + gpsTimeFormatted() + "," + 
   String(gpsParser.location.lat(), 4) + "," + 
   String(gpsParser.location.lng(), 4) + "," + 
   String(gpsParser.altitude.feet(),0) + "," + 
@@ -802,6 +885,18 @@ String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR T
    String(satcomSignal) +  "," +    
    missionStageShortString();
 
+   return value;
+}
+
+String exTelemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY
+	//GPSTIme: HHMMSSCC format
+  String value = "X," + gpsTimeFormatted() + "," + 
+  String(gpsParser.location.lat(), 4) + "," + 
+  String(gpsParser.location.lng(), 4) + "," + 
+  String(gpsParser.altitude.feet(),0);
+
+  return value;
+  //TODO (ADD EXTENDED TELEMETRY DATA)
 }
 
 void setCellModem(bool value) {		
