@@ -852,7 +852,7 @@ int performPreflightCheck() {
 		}
 
 		if (satcomSignal < 3) {
-			sendToComputer("NO GO - NOT ENOUGH SATELITES FOR LAUNCH");
+			sendToComputer("NO GO - NOT ENOUGH SATCOM SATS FOR LAUNCH");
 			return -8;	
 		}
 
