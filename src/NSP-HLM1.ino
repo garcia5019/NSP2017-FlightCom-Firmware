@@ -51,7 +51,8 @@ SYSTEM_THREAD(ENABLED);
 #define SATCOMEvent serialEvent5
 #define SATCOMEnablePin D2
 #define BUZZERPin D4
-#define SONARPin DAC
+#define SONARPin A1
+#define TEMPSENSORPin A0
 
 //====[VARIABLES]=================================================
 //## DO NOT MODIFY
@@ -67,6 +68,7 @@ float lastGPSAltitude = -1.0;
 float altitudePerMinute = 0.0;
 float altitudeOfApogee = -1.0;
 float sonarDistance = -1.0; //In Meters
+float internalTempC = -1.0; //In C
 
 float simulatedAltitude = 0.0; //For simulation only.
 
@@ -117,7 +119,7 @@ bool success = Particle.function("c", computerRequest);
 // ##
 // ##
 // ##
-void setup() {
+void setup() {	
 	//TAKE CONTROL OF THE RGB LED ONBOARD
 	RGB.control(true); 
 	//Setup SATCOM
@@ -149,9 +151,10 @@ void setup() {
 	//Start the basic timed events
 	// masterTimer.start();	
 	//READ INITIAL POWER LEFT In Battery
+	updateLocalSensors();	
 	batteryLevel = fuel.getSoC();	
-	sendToComputer("[Stage] Ground ");	
-
+	delay(300);
+	sendToComputer("[Stage] Ground ");
 }
 
 void loop() {
@@ -162,7 +165,7 @@ void loop() {
 	if (currentPeriod > 500) { //Every half a second
 		//getExternalSensorData(); //TODO
 		//writeDataToSDCard(); //TODO
-		signalFlareCheck();
+		signalFlareCheck();		
 	}
 
 	if (currentPeriod >	1000) { //Every Second
@@ -172,7 +175,7 @@ void loop() {
 		sendDataToCloud();				
 		updateStage();
 		updateLocalSensors();
-		doDebugToComputer();				
+		doDebugToComputer();					
 		lastCycleTime = currentTime; //Reset lastCycleTime for performing the next cycle calculation.
 	}
 
@@ -239,7 +242,7 @@ void sendDataToCloud() {
 void updateLocalSensors() {
 	sonarDistance = readSonarDistance();
 	batteryLevel = fuel.getSoC();
-	//TODO: Temperature
+	internalTempC = readInternalTemp();	
 }
 
 void doDebugToComputer() {		 	
@@ -355,6 +358,20 @@ float readSonarDistance() {
 	float m = ((Vm/Vi) * 2.54) / 100;    //Inches to cm || to meters
 
 	return m;
+}
+
+float readInternalTemp() {	
+	float rawAnalog = 0;
+	
+	for (int i = 0; i < ADC_OVERSAMPLE; i++) { //Do several samples and then average them.
+	 rawAnalog += analogRead(TEMPSENSORPin);	
+	}
+
+	rawAnalog = rawAnalog / ADC_OVERSAMPLE;
+ 
+	float tempC = (((rawAnalog * 3.3)/4095) - 0.5) * 100;
+
+	return tempC;
 }
 
 void setupBatteryCharger() {
@@ -609,7 +626,7 @@ int computerRequest(String param) {
 		initialGPSAltitude = gpsParser.altitude.feet();
 		return initialGPSAltitude;
 	}
-	if (param == "gonogo?") {		
+	if (param == "preflight?") {		
 		return performPreflightCheck();
 	}
 
@@ -692,6 +709,11 @@ int computerRequest(String param) {
 		return int(sonarDistance*100); //meters to centimeters and int
 	}
 
+	if (param == "temp?") {
+		sendToComputer(String(internalTempC) + " C");
+		return int(internalTempC); //meters to centimeters and int
+	}
+
 	if (param == "$") {
 		sendToComputer(telemetryString());
 		return 1;		
@@ -768,7 +790,7 @@ int computerRequest(String param) {
 		COMPUTER.println("buzzeroff = Turn Buzzer ON");
 		COMPUTER.println("buzzerchirp = Chirp the buzzer");
 		COMPUTER.println("resetinitialaltitude = Set the initial altitude to current altitude");
-		COMPUTER.println("gonogo? = Go no Go for launch");
+		COMPUTER.println("preflight? = Go no Go for launch");
 		COMPUTER.println("initialaltitude? = Get the initial altitude set uppon gps fix");
 		COMPUTER.println("vsi? = Vertical Speed?");
 		COMPUTER.println("alt? = Altitude in feet?");
@@ -780,6 +802,7 @@ int computerRequest(String param) {
 		COMPUTER.println("satenabled? = Is the sat modem enabled?");		
 		COMPUTER.println("bat? = Get battery level?");		
 		COMPUTER.println("sonar? = Get the sonar distance in meters. (cm for cell)");
+		COMPUTER.println("temp? = Get the internal (onboard) temperature in C");
 		COMPUTER.println("fwversion? = OS Firmware Version?");		
 		COMPUTER.println("$ = Print status string");		
 		COMPUTER.println("$$ = Print and send to CELL cloud status string");		
@@ -882,14 +905,16 @@ String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR T
    String(gpsParser.satellites.value()) + "," + 
    String(gpsParser.hdop.value()) +  "," +    
    String(batteryLevel/10,0) +  "," + 
-   String(satcomSignal) +  "," +    
+   String(satcomSignal) +  "," + 
+   String(internalTempC,0) +  "," + 
    missionStageShortString();
 
    return value;
 }
 
-String exTelemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY
+String exTelemetryString() {	 //THIS IS THE ALTERNATE STRING THAT WILL BE SENT 
 	//GPSTIme: HHMMSSCC format
+	//TODO: COMPLETE WITH TELEMETRY DATA
   String value = "X," + gpsTimeFormatted() + "," + 
   String(gpsParser.location.lat(), 4) + "," + 
   String(gpsParser.location.lng(), 4) + "," + 
