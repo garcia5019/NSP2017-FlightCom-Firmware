@@ -15,14 +15,15 @@ bool satModemEnabled = true;  //NO CONST!
 bool cellMuteEnabled = true;   //NO CONST!
 bool satMuteEnabled = true;   //NO CONST!
 
-const float altitudeGainClimbTrigger = 15; //Minimum alt gain after startup to detect climb.
-const float altitudePerMinuteGainClimbTrigger = 50; //ft per minute to detect a climb
-const float altitudeLossPerMinuteForDescentDetection = -20;
-const float iterationsInLowDescentToTriggerRecovery = 10;
-const float minimumAltitudeToTriggerRecovery = 5000; //If above this level we will not trigger recovery (Should we remove this??)
+const float altitudeGainClimbTrigger = 20; //Minimum alt gain after startup to detect climb.
+const float altitudePerMinuteGainClimbTrigger = 150; //ft per minute to detect a climb
+const float altitudeLossPerMinuteForDescentDetection = -150;
+const float iterationsInLowDescentToTriggerRecovery = 20;
+const float minimumAltitudeToTriggerRecovery = 7000; //If above this level we will not trigger recovery (Should we remove this??)
 const float minimumSonarDistanceToConfirmRecovery = 1; //Meters
-const uint periodBetweenCellularReports = 15;
-const uint periodBetweenSatelliteReports = 30;
+const uint periodBetweenCellularReports = 20; //Seconds
+const uint periodBetweenSatelliteReports = 30; //Seconds
+const uint periodBetweenSDWriteReports = 10; //Seconds
 bool debugMode = true;  //NO CONST!
 
 //ADC PARAMS FOR SENSOR READINGS
@@ -384,6 +385,7 @@ void setupBatteryCharger() {
 // HELPER FUNCTIONS
 // ==========================================================
 String gpsTimeFormatted() {
+	//Format: HHMMSS
 	String hour = String(gpsParser.time.hour());
 	String minute = String(gpsParser.time.minute());
 	String second = String(gpsParser.time.second());
@@ -403,6 +405,25 @@ String gpsTimeFormatted() {
 	return hour + minute + second;
 }
 
+String gpsDateFormatted() {
+	//Format: DDMM
+	String day = String(gpsParser.date.day());
+	String month = String(gpsParser.date.month());
+	
+	if (day.length() == 1) {
+		day = "0" + String(gpsParser.date.day());
+	} 
+
+	if (month.length() == 1) {
+		month = "0" + String(gpsParser.date.month());
+	} 
+
+	return day + month;
+}
+
+String gpsTimeStamp() {			
+	return gpsDateFormatted() + gpsTimeFormatted();
+}
 
 String missionStageShortString() {
 	if (missionStage == ground)  { return "G"; }
@@ -894,9 +915,9 @@ void sendExtendedDataToCell() {
 	}
 }
 
-String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY
-	//GPSTIme: HHMMSSCC format
-  String value =  "S," + gpsTimeFormatted() + "," + 
+String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY	
+	//A MESSAGE = TimeStamp, Lat, Lon, Alt, Speed, HDG, GPS_SATS, GPS_PRECISION, BATTLVL, IRIDIUM_SATS, INT_TEMP, STAGE
+	String value =  "A," + gpsTimeStamp() + "," + 
   String(gpsParser.location.lat(), 4) + "," + 
   String(gpsParser.location.lng(), 4) + "," + 
   String(gpsParser.altitude.feet(),0) + "," + 
@@ -913,12 +934,15 @@ String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR T
 }
 
 String exTelemetryString() {	 //THIS IS THE ALTERNATE STRING THAT WILL BE SENT 
-	//GPSTIme: HHMMSSCC format
-	//TODO: COMPLETE WITH TELEMETRY DATA
-  String value = "X," + gpsTimeFormatted() + "," + 
+  //B MESSAGE = TimeStamp, Lat, Lon, Alt, ExtTemp, ExtHum, ExtPress
+  String value = "B," + gpsTimeStamp() + "," + 
   String(gpsParser.location.lat(), 4) + "," + 
   String(gpsParser.location.lng(), 4) + "," + 
-  String(gpsParser.altitude.feet(),0);
+  String(gpsParser.altitude.feet(),0) + "," +
+  String(0) + "," + 
+  String(0) + "," + 
+  String(0);
+
 
   return value;
   //TODO (ADD EXTENDED TELEMETRY DATA)
