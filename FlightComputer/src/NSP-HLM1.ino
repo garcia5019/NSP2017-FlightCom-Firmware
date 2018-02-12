@@ -23,7 +23,7 @@ const float minimumAltitudeToTriggerRecovery = 7000; //If above this level we wi
 const float minimumSonarDistanceToConfirmRecovery = 1; //Meters
 const uint periodBetweenCellularReports = 20; //Seconds
 const uint periodBetweenSatelliteReports = 30; //Seconds
-const uint periodBetweenSDWriteReports = 10; //Seconds
+const uint periodBetweenSDWriteReports = 5; //Seconds
 bool debugMode = true;  //NO CONST!
 
 //ADC PARAMS FOR SENSOR READINGS
@@ -275,14 +275,7 @@ void updateStage() {
 	float altitudeGain = (gpsAltitude - initialGPSAltitude);
 	float altitudeTrend = gpsAltitude - lastGPSAltitude;	
 	altitudePerMinute = altitudeTrend * 60;
-	
-	if ((gpsAltitude < lastGPSAltitude) && (gpsAltitude > altitudeOfApogee) && lastGPSAltitude != -1)  {		
-		sendToComputer("[Event] Apogee Reached at " + String(gpsAltitude));
 		
-		altitudeOfApogee = gpsAltitude;
-	}
-
-	lastGPSAltitude = gpsAltitude;
 
 	
 	//SIMULATOR>>>////////////
@@ -314,34 +307,42 @@ void updateStage() {
 	//<<<<SIMULATOR////////////
 
 	//State Machine
-	if ((missionStage == ground && initialGPSAltitude > 0) && (altitudeGain > altitudeGainClimbTrigger) && (altitudePerMinute > altitudePerMinuteGainClimbTrigger)) {
-		missionStage = climb;
-		lastPositiveGPSAltitude = gpsAltitude;		
-		sendToComputer("[Stage] Climb Detected at: " + String(gpsAltitude));		
-	}
-
-
-	if (missionStage == climb && altitudeTrend < 10 && altitudePerMinute <= altitudeLossPerMinuteForDescentDetection) {
-		missionStage = descent;		
-		sendToComputer("[Stage] Descent Detected at " + String(gpsAltitude));
-	
-	}
-
-	if ((missionStage == descent && altitudePerMinute < 2) && (gpsAltitude <= minimumAltitudeToTriggerRecovery)) {
-		recoveryDetectionIterations++;
-		if (recoveryDetectionIterations >= iterationsInLowDescentToTriggerRecovery) {			
-			missionStage = recovery;			
-			sendToComputer("[Stage] Recovery Detected at " + String(gpsAltitude));		
+	if (gpsState == Fix && initialGPSAltitude > 0 && missionStage == ground) {
+		if ((altitudeGain > altitudeGainClimbTrigger) && (altitudePerMinute > altitudePerMinuteGainClimbTrigger)) {
+			missionStage = climb;
+			lastPositiveGPSAltitude = gpsAltitude;		
+			sendToComputer("[Stage] Climb Detected at: " + String(gpsAltitude));		
 		}
 	}
+
+		if ((missionStage == climb) && (gpsAltitude < lastGPSAltitude) && (gpsAltitude > altitudeOfApogee) && (lastGPSAltitude != -1))  {
+			sendToComputer("[Event] Apogee Reached at " + String(gpsAltitude));		
+			altitudeOfApogee = gpsAltitude;
+		}
+			
+		if (missionStage == climb && altitudeTrend < 10 && altitudePerMinute <= altitudeLossPerMinuteForDescentDetection) {
+			missionStage = descent;		
+			sendToComputer("[Stage] Descent Detected at " + String(gpsAltitude));
+
+		}
+
+		if ((missionStage == descent && altitudePerMinute < 2) && (gpsAltitude <= minimumAltitudeToTriggerRecovery)) {
+			recoveryDetectionIterations++;
+			if (recoveryDetectionIterations >= iterationsInLowDescentToTriggerRecovery) {			
+				missionStage = recovery;			
+				sendToComputer("[Stage] Recovery Detected at " + String(gpsAltitude));		
+			}
+		}
+	
 
 	if (missionStage == recovery)  {		
 		if (sonarDistance <= minimumSonarDistanceToConfirmRecovery) {
 			missionStage = recovery_confirmed;
 			sendToComputer("[Stage] Recovery Confirmed at " + String(sonarDistance));
 		}
-	}	
-	
+	}
+
+	lastGPSAltitude = gpsAltitude;	
 }
 
 
