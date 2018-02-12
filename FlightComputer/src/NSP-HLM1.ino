@@ -70,6 +70,7 @@ float altitudePerMinute = 0.0;
 float altitudeOfApogee = -1.0;
 float sonarDistance = -1.0; //In Meters
 float internalTempC = -1.0; //In C
+int gpsFixValue = 0;
 
 float simulatedAltitude = 0.0; //For simulation only.
 
@@ -109,6 +110,8 @@ enum GPSState {
 TinyGPSPlus gpsParser;
 MissionStage missionStage = ground;
 GPSState gpsState = unknown;
+
+TinyGPSCustom gpsFixType(gpsParser, "GPGGA", 6); // $GPGGA fixType decoding from GPS
 
 
 //====[PARTICLE CLOUD FNs]=================================
@@ -432,6 +435,26 @@ String missionStageShortString() {
 	if (missionStage == recovery)  { return "R"; }
 }
 
+void updateGPSFixType() {
+	String inValue =  gpsFixType.value();
+	gpsFixValue = inValue.toInt();
+
+	switch(gpsFixValue) {
+		case 0:
+		gpsState = noFix; 
+		break; 
+		case 1:
+		gpsState = Fix; 
+		break; 
+		case 2:
+		gpsState = Fix; 			
+		break;
+		default :
+		gpsState = noFix; 
+		break;
+	}
+}
+
 void sendToComputer(String text) {
 	TRY_LOCK(COMPUTER) {	
 		COMPUTER.println(text);
@@ -496,17 +519,15 @@ void GPSEvent()
 		}
 	}	
 
-	if (gpsParser.hdop.value() < 300) {
-		gpsState = Fix;		
-			if (initialGPSAltitude==-1 && gpsParser.altitude.feet() > 0) {
-				initialGPSAltitude = gpsParser.altitude.feet();					
-				sendToComputer("[Event] Initial Altitude Set to: " + String(initialGPSAltitude,0));				
-			}
-	}	else {
-		gpsState = noFix;		
-	}
+	updateGPSFixType();
 
+	if (gpsState == Fix && initialGPSAltitude==-1 && gpsParser.altitude.feet() > 0) {
+		initialGPSAltitude = gpsParser.altitude.feet();					
+		sendToComputer("[Event] Initial Altitude Set to: " + String(initialGPSAltitude,0));
+	}
 }
+
+
 
 void computerEvent() 
 {
@@ -725,6 +746,11 @@ int computerRequest(String param) {
 		return batteryLevel;
 	}
 
+	if (param == "gpsfix?") {
+		sendToComputer(String(gpsFixValue));
+		return gpsFixValue;
+	}
+
 	if (param == "sonar?") {
 		sendToComputer(String(sonarDistance) + " meters");
 		return int(sonarDistance*100); //meters to centimeters and int
@@ -821,7 +847,8 @@ int computerRequest(String param) {
 		COMPUTER.println("cloud? = Is cloud available?");
 		COMPUTER.println("satsignal? = 0-5 Satcom signal strength?");		
 		COMPUTER.println("satenabled? = Is the sat modem enabled?");		
-		COMPUTER.println("bat? = Get battery level?");		
+		COMPUTER.println("bat? = Get battery level?");	
+		COMPUTER.println("gpsfix? = Get GpsFix ValueType? (0=NoFix,1=Fix,2=DGPSFix)");
 		COMPUTER.println("sonar? = Get the sonar distance in meters. (cm for cell)");
 		COMPUTER.println("temp? = Get the internal (onboard) temperature in C");
 		COMPUTER.println("fwversion? = OS Firmware Version?");		
@@ -836,7 +863,7 @@ int computerRequest(String param) {
 }
 
 int performPreflightCheck() {
-	if (initialGPSAltitude == -1) {
+		if (initialGPSAltitude == -1) {
 			sendToComputer("NO GO - MISSING INITIAL ALTITUDE");
 			return -1;
 		}
@@ -851,36 +878,42 @@ int performPreflightCheck() {
 			return -3;
 		}
 
+		if (gpsState != Fix) {
+			sendToComputer("NO GO - GPS DOES NOT HAVE FIX");
+			return -4;
+		}
+
+
 		if (batteryLevel < 80) {
 			sendToComputer("NO GO - LOW BATTERY FOR LAUNCH");
-			return -4;	
+			return -5;	
 		}
 
 		if (sonarDistance > 10) {
 			sendToComputer("NO GO - SONAR TEST FAILED");
-			return -5;	
+			return -6;	
 		}	
 
 
 		if (satModemEnabled == false) {
 			sendToComputer("NO GO - SAT MODEM IS OFF");
-			return -6;	
+			return -7;	
 		}
 
 		if (cellModemEnabled == false) {
 			sendToComputer("NO GO - CELL MODEM IS OFF");
-			return -7;	
+			return -8;	
 		}
 
 		if (satcomSignal < 3) {
 			sendToComputer("NO GO - NOT ENOUGH SATCOM SATS FOR LAUNCH");
-			return -8;	
+			return -9;	
 		}
 
 		getCellSignal();
 		if (cellSignalRSSI <= 0 || cellSignalQuality <= 0) {
 			sendToComputer("NO GO - NOT ENOUGH CELL SIGNAL FOR LAUNCH");
-			return -9;	
+			return -10;	
 		}
 
 		sendToComputer("GO FOR LAUNCH");
