@@ -16,7 +16,7 @@ bool cellMuteEnabled = true;   //NO CONST!
 bool satMuteEnabled = true;   //NO CONST!
 
 const float altitudeGainClimbTrigger = 20; //Minimum alt gain after startup to detect climb.
-const float altitudePerMinuteGainClimbTrigger = 150; //ft per minute to detect a climb
+const float altitudePerMinuteGainClimbTrigger = 100; //ft per minute to detect a climb
 const float altitudeLossPerMinuteForDescentDetection = -150;
 const float iterationsInLowDescentToTriggerRecovery = 20;
 const float minimumAltitudeToTriggerRecovery = 7000; //If above this level we will not trigger recovery (Should we remove this??)
@@ -975,7 +975,8 @@ String exTelemetryString() {	 //THIS IS THE ALTERNATE STRING THAT WILL BE SENT
   String(gpsParser.altitude.feet(),0) + "," +
   String(0) + "," + 
   String(0) + "," + 
-  String(0);
+  String(0) + "," + 
+  missionStageShortString();
 
 
   return value;
