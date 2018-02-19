@@ -15,14 +15,15 @@ bool satModemEnabled = true;  //NO CONST!
 bool cellMuteEnabled = true;   //NO CONST!
 bool satMuteEnabled = true;   //NO CONST!
 
-const float altitudeGainClimbTrigger = 15; //Minimum alt gain after startup to detect climb.
-const float altitudePerMinuteGainClimbTrigger = 50; //ft per minute to detect a climb
-const float altitudeLossPerMinuteForDescentDetection = -20;
-const float iterationsInLowDescentToTriggerRecovery = 10;
-const float minimumAltitudeToTriggerRecovery = 5000; //If above this level we will not trigger recovery (Should we remove this??)
+const float altitudeGainClimbTrigger = 20; //Minimum alt gain after startup to detect climb.
+const float altitudePerMinuteGainClimbTrigger = 100; //ft per minute to detect a climb
+const float altitudeLossPerMinuteForDescentDetection = -150;
+const float iterationsInLowDescentToTriggerRecovery = 20;
+const float minimumAltitudeToTriggerRecovery = 7000; //If above this level we will not trigger recovery (Should we remove this??)
 const float minimumSonarDistanceToConfirmRecovery = 1; //Meters
-const uint periodBetweenCellularReports = 15;
-const uint periodBetweenSatelliteReports = 30;
+const uint periodBetweenCellularReports = 20; //Seconds
+const uint periodBetweenSatelliteReports = 30; //Seconds
+const uint periodBetweenSDWriteReports = 5; //Seconds
 bool debugMode = true;  //NO CONST!
 
 //ADC PARAMS FOR SENSOR READINGS
@@ -69,6 +70,7 @@ float altitudePerMinute = 0.0;
 float altitudeOfApogee = -1.0;
 float sonarDistance = -1.0; //In Meters
 float internalTempC = -1.0; //In C
+int gpsFixValue = 0;
 
 float simulatedAltitude = 0.0; //For simulation only.
 
@@ -108,6 +110,8 @@ enum GPSState {
 TinyGPSPlus gpsParser;
 MissionStage missionStage = ground;
 GPSState gpsState = unknown;
+
+TinyGPSCustom gpsFixType(gpsParser, "GPGGA", 6); // $GPGGA fixType decoding from GPS
 
 
 //====[PARTICLE CLOUD FNs]=================================
@@ -271,14 +275,7 @@ void updateStage() {
 	float altitudeGain = (gpsAltitude - initialGPSAltitude);
 	float altitudeTrend = gpsAltitude - lastGPSAltitude;	
 	altitudePerMinute = altitudeTrend * 60;
-	
-	if ((gpsAltitude < lastGPSAltitude) && (gpsAltitude > altitudeOfApogee) && lastGPSAltitude != -1)  {		
-		sendToComputer("[Event] Apogee Reached at " + String(gpsAltitude));
 		
-		altitudeOfApogee = gpsAltitude;
-	}
-
-	lastGPSAltitude = gpsAltitude;
 
 	
 	//SIMULATOR>>>////////////
@@ -310,34 +307,42 @@ void updateStage() {
 	//<<<<SIMULATOR////////////
 
 	//State Machine
-	if ((missionStage == ground && initialGPSAltitude > 0) && (altitudeGain > altitudeGainClimbTrigger) && (altitudePerMinute > altitudePerMinuteGainClimbTrigger)) {
-		missionStage = climb;
-		lastPositiveGPSAltitude = gpsAltitude;		
-		sendToComputer("[Stage] Climb Detected at: " + String(gpsAltitude));		
-	}
-
-
-	if (missionStage == climb && altitudeTrend < 10 && altitudePerMinute <= altitudeLossPerMinuteForDescentDetection) {
-		missionStage = descent;		
-		sendToComputer("[Stage] Descent Detected at " + String(gpsAltitude));
-	
-	}
-
-	if ((missionStage == descent && altitudePerMinute < 2) && (gpsAltitude <= minimumAltitudeToTriggerRecovery)) {
-		recoveryDetectionIterations++;
-		if (recoveryDetectionIterations >= iterationsInLowDescentToTriggerRecovery) {			
-			missionStage = recovery;			
-			sendToComputer("[Stage] Recovery Detected at " + String(gpsAltitude));		
+	if (gpsState == Fix && initialGPSAltitude > 0 && missionStage == ground) {
+		if ((altitudeGain > altitudeGainClimbTrigger) && (altitudePerMinute > altitudePerMinuteGainClimbTrigger)) {
+			missionStage = climb;
+			lastPositiveGPSAltitude = gpsAltitude;		
+			sendToComputer("[Stage] Climb Detected at: " + String(gpsAltitude));		
 		}
 	}
+
+		if ((missionStage == climb) && (gpsAltitude < lastGPSAltitude) && (gpsAltitude > altitudeOfApogee) && (lastGPSAltitude != -1))  {
+			sendToComputer("[Event] Apogee Reached at " + String(gpsAltitude));		
+			altitudeOfApogee = gpsAltitude;
+		}
+			
+		if (missionStage == climb && altitudeTrend < 10 && altitudePerMinute <= altitudeLossPerMinuteForDescentDetection) {
+			missionStage = descent;		
+			sendToComputer("[Stage] Descent Detected at " + String(gpsAltitude));
+
+		}
+
+		if ((missionStage == descent && altitudePerMinute < 2) && (gpsAltitude <= minimumAltitudeToTriggerRecovery)) {
+			recoveryDetectionIterations++;
+			if (recoveryDetectionIterations >= iterationsInLowDescentToTriggerRecovery) {			
+				missionStage = recovery;			
+				sendToComputer("[Stage] Recovery Detected at " + String(gpsAltitude));		
+			}
+		}
+	
 
 	if (missionStage == recovery)  {		
 		if (sonarDistance <= minimumSonarDistanceToConfirmRecovery) {
 			missionStage = recovery_confirmed;
 			sendToComputer("[Stage] Recovery Confirmed at " + String(sonarDistance));
 		}
-	}	
-	
+	}
+
+	lastGPSAltitude = gpsAltitude;	
 }
 
 
@@ -384,6 +389,7 @@ void setupBatteryCharger() {
 // HELPER FUNCTIONS
 // ==========================================================
 String gpsTimeFormatted() {
+	//Format: HHMMSS
 	String hour = String(gpsParser.time.hour());
 	String minute = String(gpsParser.time.minute());
 	String second = String(gpsParser.time.second());
@@ -403,12 +409,51 @@ String gpsTimeFormatted() {
 	return hour + minute + second;
 }
 
+String gpsDateFormatted() {
+	//Format: DDMM
+	String day = String(gpsParser.date.day());
+	String month = String(gpsParser.date.month());
+	
+	if (day.length() == 1) {
+		day = "0" + String(gpsParser.date.day());
+	} 
+
+	if (month.length() == 1) {
+		month = "0" + String(gpsParser.date.month());
+	} 
+
+	return day + month;
+}
+
+String gpsTimeStamp() {			
+	return gpsDateFormatted() + gpsTimeFormatted();
+}
 
 String missionStageShortString() {
 	if (missionStage == ground)  { return "G"; }
 	if (missionStage == climb)  { return "C"; }	
 	if (missionStage == descent)  { return "D"; }
 	if (missionStage == recovery)  { return "R"; }
+}
+
+void updateGPSFixType() {
+	String inValue =  gpsFixType.value();
+	gpsFixValue = inValue.toInt();
+
+	switch(gpsFixValue) {
+		case 0:
+		gpsState = noFix; 
+		break; 
+		case 1:
+		gpsState = Fix; 
+		break; 
+		case 2:
+		gpsState = Fix; 			
+		break;
+		default :
+		gpsState = noFix; 
+		break;
+	}
 }
 
 void sendToComputer(String text) {
@@ -475,17 +520,15 @@ void GPSEvent()
 		}
 	}	
 
-	if (gpsParser.hdop.value() < 300) {
-		gpsState = Fix;		
-			if (initialGPSAltitude==-1 && gpsParser.altitude.feet() > 0) {
-				initialGPSAltitude = gpsParser.altitude.feet();					
-				sendToComputer("[Event] Initial Altitude Set to: " + String(initialGPSAltitude,0));				
-			}
-	}	else {
-		gpsState = noFix;		
-	}
+	updateGPSFixType();
 
+	if (gpsState == Fix && initialGPSAltitude==-1 && gpsParser.altitude.feet() > 0) {
+		initialGPSAltitude = gpsParser.altitude.feet();					
+		sendToComputer("[Event] Initial Altitude Set to: " + String(initialGPSAltitude,0));
+	}
 }
+
+
 
 void computerEvent() 
 {
@@ -704,6 +747,11 @@ int computerRequest(String param) {
 		return batteryLevel;
 	}
 
+	if (param == "gpsfix?") {
+		sendToComputer(String(gpsFixValue));
+		return gpsFixValue;
+	}
+
 	if (param == "sonar?") {
 		sendToComputer(String(sonarDistance) + " meters");
 		return int(sonarDistance*100); //meters to centimeters and int
@@ -800,7 +848,8 @@ int computerRequest(String param) {
 		COMPUTER.println("cloud? = Is cloud available?");
 		COMPUTER.println("satsignal? = 0-5 Satcom signal strength?");		
 		COMPUTER.println("satenabled? = Is the sat modem enabled?");		
-		COMPUTER.println("bat? = Get battery level?");		
+		COMPUTER.println("bat? = Get battery level?");	
+		COMPUTER.println("gpsfix? = Get GpsFix ValueType? (0=NoFix,1=Fix,2=DGPSFix)");
 		COMPUTER.println("sonar? = Get the sonar distance in meters. (cm for cell)");
 		COMPUTER.println("temp? = Get the internal (onboard) temperature in C");
 		COMPUTER.println("fwversion? = OS Firmware Version?");		
@@ -815,7 +864,7 @@ int computerRequest(String param) {
 }
 
 int performPreflightCheck() {
-	if (initialGPSAltitude == -1) {
+		if (initialGPSAltitude == -1) {
 			sendToComputer("NO GO - MISSING INITIAL ALTITUDE");
 			return -1;
 		}
@@ -830,36 +879,42 @@ int performPreflightCheck() {
 			return -3;
 		}
 
+		if (gpsState != Fix) {
+			sendToComputer("NO GO - GPS DOES NOT HAVE FIX");
+			return -4;
+		}
+
+
 		if (batteryLevel < 80) {
 			sendToComputer("NO GO - LOW BATTERY FOR LAUNCH");
-			return -4;	
+			return -5;	
 		}
 
 		if (sonarDistance > 10) {
 			sendToComputer("NO GO - SONAR TEST FAILED");
-			return -5;	
+			return -6;	
 		}	
 
 
 		if (satModemEnabled == false) {
 			sendToComputer("NO GO - SAT MODEM IS OFF");
-			return -6;	
+			return -7;	
 		}
 
 		if (cellModemEnabled == false) {
 			sendToComputer("NO GO - CELL MODEM IS OFF");
-			return -7;	
+			return -8;	
 		}
 
 		if (satcomSignal < 3) {
 			sendToComputer("NO GO - NOT ENOUGH SATCOM SATS FOR LAUNCH");
-			return -8;	
+			return -9;	
 		}
 
 		getCellSignal();
 		if (cellSignalRSSI <= 0 || cellSignalQuality <= 0) {
 			sendToComputer("NO GO - NOT ENOUGH CELL SIGNAL FOR LAUNCH");
-			return -9;	
+			return -10;	
 		}
 
 		sendToComputer("GO FOR LAUNCH");
@@ -894,9 +949,9 @@ void sendExtendedDataToCell() {
 	}
 }
 
-String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY
-	//GPSTIme: HHMMSSCC format
-  String value =  "S," + gpsTimeFormatted() + "," + 
+String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY	
+	//A MESSAGE = TimeStamp, Lat, Lon, Alt, Speed, HDG, GPS_SATS, GPS_PRECISION, BATTLVL, IRIDIUM_SATS, INT_TEMP, STAGE
+	String value =  "A," + gpsTimeStamp() + "," + 
   String(gpsParser.location.lat(), 4) + "," + 
   String(gpsParser.location.lng(), 4) + "," + 
   String(gpsParser.altitude.feet(),0) + "," + 
@@ -913,12 +968,16 @@ String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR T
 }
 
 String exTelemetryString() {	 //THIS IS THE ALTERNATE STRING THAT WILL BE SENT 
-	//GPSTIme: HHMMSSCC format
-	//TODO: COMPLETE WITH TELEMETRY DATA
-  String value = "X," + gpsTimeFormatted() + "," + 
+  //B MESSAGE = TimeStamp, Lat, Lon, Alt, ExtTemp, ExtHum, ExtPress
+  String value = "B," + gpsTimeStamp() + "," + 
   String(gpsParser.location.lat(), 4) + "," + 
   String(gpsParser.location.lng(), 4) + "," + 
-  String(gpsParser.altitude.feet(),0);
+  String(gpsParser.altitude.feet(),0) + "," +
+  String(0) + "," + 
+  String(0) + "," + 
+  String(0) + "," + 
+  missionStageShortString();
+
 
   return value;
   //TODO (ADD EXTENDED TELEMETRY DATA)
