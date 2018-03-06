@@ -8,11 +8,13 @@
 
 #include "TinyGPS++.h"
 #include "Serial5/Serial5.h"
+#include "Serial4/Serial4.h"
 
 //====[SETTINGS]=================================================
 bool cellModemEnabled = true;  //NO CONST!
 bool satModemEnabled = true;  //NO CONST!
 bool cellMuteEnabled = true;   //NO CONST!
+bool sdMuteEnabled = true;   //NO CONST!
 bool satMuteEnabled = true;   //NO CONST!
 
 const float altitudeGainClimbTrigger = 20; //Minimum alt gain after startup to detect climb.
@@ -24,6 +26,7 @@ const float minimumSonarDistanceToConfirmRecovery = 1; //Meters
 const uint periodBetweenCellularReports = 20; //Seconds
 const uint periodBetweenSatelliteReports = 30; //Seconds
 const uint periodBetweenSDWriteReports = 5; //Seconds
+const char *SDFileName = "NSP2017Log.txt";
 bool debugMode = true;  //NO CONST!
 
 //ADC PARAMS FOR SENSOR READINGS
@@ -34,6 +37,7 @@ const int ADC_OVERSAMPLE = 5; //Number of samples to take before making an accur
 bool simulationMode = false;
 bool gpsDebugDump = false;
 bool satDebugDump = false;
+bool sdDebugDump = false;
 float simulatedApogeeAltitude = 200;
 //<<<<<<
 
@@ -46,8 +50,10 @@ SYSTEM_THREAD(ENABLED);
 //====[MACROS]====================================================
 #define GPS Serial1
 #define COMPUTER Serial
+#define SDCARD Serial4
 #define GPSEvent serialEvent1
 #define computerEvent serialEvent
+#define SDCardEvent serialEvent4
 #define SATCOM Serial5
 #define SATCOMEvent serialEvent5
 #define SATCOMEnablePin D2
@@ -57,7 +63,7 @@ SYSTEM_THREAD(ENABLED);
 
 //====[VARIABLES]=================================================
 //## DO NOT MODIFY
-//## 
+//##
 uint celTelemetryTurn = 0;
 uint satTelemetryTurn = 0;
 uint elapsedSeconds = 0;
@@ -88,6 +94,7 @@ int cellSignalRSSI = -1;
 int cellSignalQuality = -1;
 
 String computerSerialData;
+String SDCardSerialData;
 String satSerialData;
 String lastSatModemRequest = "";
 
@@ -138,6 +145,12 @@ void setup() {
 	GPS.begin(57600);
 	//CONNECT TO COMPUTER VIA USB
 	COMPUTER.begin(57600);	
+	//CONNECT TO SDCARD LOGGER
+	SDCARD.begin(115200); //MAKE SURE YOU SET THIS UP IN THE CONFIG.TXT (115200,26,3,0,1,1,0)
+	delay(100);
+
+	//INIT SDCARD
+	bootSDCard();
 	//SETUP BATTERY CHARGER 
 	setupBatteryCharger();	
 	//CHANGE LED COLOR
@@ -156,10 +169,39 @@ void setup() {
 	// masterTimer.start();	
 	//READ INITIAL POWER LEFT In Battery
 	updateLocalSensors();	
-	batteryLevel = fuel.getSoC();	
+	batteryLevel = fuel.getSoC();
+	
 	delay(300);
 	sendToComputer("[Stage] Ground ");
 }
+
+void bootSDCard() {
+  SDCARD.write(26);
+  SDCARD.write(26);
+  SDCARD.write(26);  
+  delay(100);
+  // OpenLog.print("new ");
+  // OpenLog.println(SDFileName);
+  // delay(100);
+  SDCARD.print("append ");
+  SDCARD.println(SDFileName);  
+  delay(200);
+
+
+ writeLineToSDCard("[EVENT] System Boot");
+  
+ if (Time.isValid() == true) {
+  	time_t time = Time.now();  	
+  	writeLineToSDCard("TimeStamp: " + Time.format(time, TIME_FORMAT_ISO8601_FULL));
+  } else {
+	writeLineToSDCard("[EVENT] System Boot");
+	writeLineToSDCard("TimeStamp: Not provided by OS");
+  }
+  
+	delay(200);
+  	sendToComputer("[SDCARD] Initialized to append writing");
+}
+
 
 void loop() {
 	uint currentTime = millis(); //Get the time since boot.
@@ -174,7 +216,8 @@ void loop() {
 
 	if (currentPeriod >	1000) { //Every Second
 		elapsedSeconds++;
-		setMissionIndicators();		
+		setMissionIndicators();
+		logDataToSDCard(); //HERE OR IN THE UPPER check?
 		satcomKeepAlive();
 		sendDataToCloud();				
 		updateStage();
@@ -182,6 +225,8 @@ void loop() {
 		doDebugToComputer();					
 		lastCycleTime = currentTime; //Reset lastCycleTime for performing the next cycle calculation.
 	}
+
+
 
 	if (elapsedSeconds >= 240) { elapsedSeconds = 0; } //Prevent overflow
 	
@@ -240,6 +285,13 @@ void sendDataToCloud() {
 				sendExtendedDataToSat();			
 				satTelemetryTurn = 0;
 		}		
+	}
+}
+
+void logDataToSDCard() { //TODO [Set a period for storage]
+	if (sdMuteEnabled == false) {
+		logStatusToSDCard();
+		logExtendedDataToSDCard();
 	}
 }
 
@@ -462,6 +514,14 @@ void sendToComputer(String text) {
 	}
 }
 
+void sendToSDCard(String text) {	
+		SDCARD.println(text);	
+}
+
+void writeLineToSDCard(String line) {	
+  	SDCARD.println(line);
+}
+
 
 // ==========================================================
 // INTERRUPT BASED SERIAL COM (CALLBACKS)
@@ -545,6 +605,24 @@ void computerEvent()
 	}	
 }
 
+void SDCardEvent()
+{
+	if (SDCARD.available()) {
+		while (SDCARD.available()) {			
+			char c = SDCARD.read();
+			SDCardSerialData = SDCardSerialData + c;
+			if (c == '\r') {
+				if (sdDebugDump == true) {
+					sendToComputer(SDCardSerialData);
+				}
+				
+				SDCardSerialData = SDCardSerialData.remove(SDCardSerialData.indexOf('\n'));				
+				SDCardSerialData = "";
+			}
+		}
+	}	
+}
+
 
 // ==========================================================
 // REMOTE CONTROL
@@ -615,6 +693,17 @@ int computerRequest(String param) {
 			return 0;
 		}
 	}
+	if (param == "sdmute") {
+		sdMuteEnabled = !sdMuteEnabled;
+		if (sdMuteEnabled == true) {
+			sendToComputer("[Event] SDMute Enabled");
+			return 1;
+		} else {
+			sendToComputer("[Event] SDMute Disabled");
+			return 0;
+		}
+	}
+
 	if (param == "saton") {				
 		setSatModem(true);		
 		return 1;
@@ -639,6 +728,10 @@ int computerRequest(String param) {
 	}
 	if (param == "satdump") {		
 		satDebugDump = !satDebugDump;
+		return 1;
+	}
+	if (param == "sddump") {
+		sdDebugDump = !sdDebugDump;
 		return 1;
 	}
 	if (param == "querysatsignal") {		
@@ -807,6 +900,19 @@ int computerRequest(String param) {
 		return 1;
 	}
 
+	if (param == ">ls") {
+		sendToSDCard("new NSP2017Log.txt");
+		sendToComputer("OK");
+		return 1;
+	}
+
+	if (param == ">new") {
+  		sendToSDCard("new NSP2017Log.txt");
+  		sendToComputer("OK");
+	}
+
+		
+
 	
 
 	if (param == "?") {
@@ -832,6 +938,7 @@ int computerRequest(String param) {
 		COMPUTER.println("comon = All Comunication systems ON [cell + sat]");
 		COMPUTER.println("gpsdump = GPS Serial Dump to computer toggle");
 		COMPUTER.println("satdump = SATCOM Serial Dump to computer toggle");
+		COMPUTER.println("sddump = SDCARD Serial Dump to computer toggle");
 		COMPUTER.println("querysatsignal = Send a request to the satelite modem to get sat signal");
 		COMPUTER.println("querycellsignal = Send a request to the cellular modem to get RSSI signal");
 		COMPUTER.println("buzzeron = Turn Buzzer ON");
@@ -855,7 +962,10 @@ int computerRequest(String param) {
 		COMPUTER.println("fwversion? = OS Firmware Version?");		
 		COMPUTER.println("$ = Print status string");		
 		COMPUTER.println("$$ = Print and send to CELL cloud status string");		
-		COMPUTER.println("$$$ = Print and send to SAT cloud status string");		
+		COMPUTER.println("$$$ = Print and send to SAT cloud status string");
+		COMPUTER.println(">ls = List files on SD Drive");
+		COMPUTER.println(">new = RESET File in SD Drive [Warning");
+
 		COMPUTER.println("-------------------------.--------------------------");
 		}
 	}
@@ -935,6 +1045,14 @@ void sendStatusToSat() {
 	if (satMuteEnabled == false) {	
 		sendTextToSat(telemetryString());
 	}
+}
+
+void logStatusToSDCard() {
+	writeLineToSDCard(telemetryString());
+}
+
+void logExtendedDataToSDCard() {
+	writeLineToSDCard(exTelemetryString());
 }
 
 void sendExtendedDataToSat() {
