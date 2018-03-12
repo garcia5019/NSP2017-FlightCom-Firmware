@@ -17,7 +17,7 @@ bool cellMuteEnabled = false;   //NO CONST!
 bool sdMuteEnabled = false;   //NO CONST!
 bool satMuteEnabled = true;   //NO CONST!
 
-const float altitudeGainClimbTrigger = 65; //FT Minimum alt gain after startup to detect climb.
+const float altitudeGainClimbTrigger = 200; //FT Minimum alt gain after startup to detect climb.
 const float altitudePerMinuteGainClimbTrigger = 200; //ft per minute to detect a climb
 const float altitudeLossPerMinuteForDescentDetection = -200;
 const float iterationsInLowDescentToTriggerRecovery = 20;
@@ -37,7 +37,7 @@ const int ADC_OVERSAMPLE = 5; //Number of samples to take before making an accur
 bool simulationMode = false;
 bool gpsDebugDump = false;
 bool satDebugDump = false;
-bool sdDebugDump = true;
+bool sdDebugDump = false;
 float simulatedApogeeAltitude = 200;
 //<<<<<<
 
@@ -267,23 +267,23 @@ void satcomKeepAlive() {
 
 void sendDataToCloud() {
 	if (elapsedSeconds % periodBetweenCellularReports == 0) { //CELLULAR
-		if (celTelemetryTurn == 0) {
+		//if (celTelemetryTurn == 0) {
 			sendStatusToCell(); //Send STAT STRING to cloud via CELL if connected..			
-			celTelemetryTurn = 1;
-		} else {
-			sendExtendedDataToCell();
-			celTelemetryTurn = 0;
-		}
+		//	celTelemetryTurn = 1;
+		//} else {
+//			sendExtendedDataToCell();
+//			celTelemetryTurn = 0;
+//		}
 	}
 
 	if (elapsedSeconds % periodBetweenSatelliteReports == 0) {	//SATELLITE
-		if (satTelemetryTurn == 0) {
+	//	if (satTelemetryTurn == 0) {
 				sendStatusToSat();
-				satTelemetryTurn = 1;
-			} else {
-				sendExtendedDataToSat();			
-				satTelemetryTurn = 0;
-		}		
+	//			satTelemetryTurn = 1;
+	//		} else {
+	//			sendExtendedDataToSat();			
+	//			satTelemetryTurn = 0;
+	// 	}		
 	}
 }
 
@@ -362,17 +362,20 @@ void updateStage() {
 			missionStage = climb;
 			lastPositiveGPSAltitude = gpsAltitude;		
 			sendToComputer("[Stage] Climb Detected at: " + String(gpsAltitude));		
+			writeLineToSDCard("[Stage] Climb Detected at: " + String(gpsAltitude));
 		}
 	}
 
 		if ((missionStage == climb) && (gpsAltitude < lastGPSAltitude) && (gpsAltitude > altitudeOfApogee) && (lastGPSAltitude != -1))  {
 			sendToComputer("[Event] Apogee Reached at " + String(gpsAltitude));		
+			writeLineToSDCard("[Event] Apogee Reached at " + String(gpsAltitude));		
 			altitudeOfApogee = gpsAltitude;
 		}
 			
 		if (missionStage == climb && altitudeTrend < 10 && altitudePerMinute <= altitudeLossPerMinuteForDescentDetection) {
 			missionStage = descent;		
 			sendToComputer("[Stage] Descent Detected at " + String(gpsAltitude));
+			writeLineToSDCard("[Stage] Descent Detected at " + String(gpsAltitude));
 
 		}
 
@@ -381,14 +384,17 @@ void updateStage() {
 			if (recoveryDetectionIterations >= iterationsInLowDescentToTriggerRecovery) {			
 				missionStage = recovery;			
 				sendToComputer("[Stage] Recovery Detected at " + String(gpsAltitude));		
+				writeLineToSDCard("[Stage] Recovery Detected at " + String(gpsAltitude));		
 			}
 		}
 	
 
-	if (missionStage == recovery)  {		
+	if (missionStage == recovery)  {
+		//TODO: Add bypass to signalflare
 		if (sonarDistance <= minimumSonarDistanceToConfirmRecovery) {
 			missionStage = recovery_confirmed;
 			sendToComputer("[Stage] Recovery Confirmed at " + String(sonarDistance));
+			writeLineToSDCard("[Stage] Recovery Confirmed at " + String(sonarDistance));
 		}
 	}
 
@@ -431,6 +437,7 @@ float readInternalTemp() {
 
 void setupBatteryCharger() {
 	PMIC pmic; //Initalize the PMIC class so you can call the Power Management functions below. 
+	pmic.begin();
 	pmic.setChargeCurrent(0,0,1,0,0,0); //Set charging current to 1024mA (512 + 512 offset)
 	pmic.setInputCurrentLimit(2000);
 }
@@ -860,10 +867,10 @@ int computerRequest(String param) {
 		return 1;		
 	}
 
-	if (param == "x$") {
-		sendToComputer(exTelemetryString());
-		return 1;		
-	}
+	// if (param == "x$") {
+	// 	sendToComputer(exTelemetryString());
+	// 	return 1;		
+	// }
 
 	if (param == "$$") {	
 		sendToComputer("OK");	
@@ -871,11 +878,11 @@ int computerRequest(String param) {
 		return 1;		
 	}	
 
-	if (param == "x$$") {	
-		sendToComputer("OK");	
-		sendExtendedDataToCell();
-		return 1;		
-	}	
+	// if (param == "x$$") {	
+	// 	sendToComputer("OK");	
+	// 	sendExtendedDataToCell();
+	// 	return 1;		
+	// }	
 
 	if (param == "$$$") {	
 		sendToComputer("OK");
@@ -888,9 +895,9 @@ int computerRequest(String param) {
 	if (param == "$$$$") {	
 		sendToComputer("OK");
 		sendStatusToCell();
-		sendExtendedDataToCell();
+		//sendExtendedDataToCell();
 		sendStatusToSat();
-		sendExtendedDataToSat();
+		//sendExtendedDataToSat();
 		return 1;
 	}
 
@@ -1056,17 +1063,17 @@ void logStatusToSDCard() {
 }
 
 
-void sendExtendedDataToSat() {
-	if (satMuteEnabled == false) {	
-		sendTextToSat(exTelemetryString());
-	}
-}
+// void sendExtendedDataToSat() {
+// 	if (satMuteEnabled == false) {	
+// 		sendTextToSat(exTelemetryString());
+// 	}
+// }
 
-void sendExtendedDataToCell() {
-	if (Particle.connected() == true && cellMuteEnabled == false) { 		
-		Particle.publish("S",exTelemetryString());
-	}
-}
+// void sendExtendedDataToCell() {
+// 	if (Particle.connected() == true && cellMuteEnabled == false) { 		
+// 		Particle.publish("S",exTelemetryString());
+// 	}
+// }
 
 String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY	
 	//A MESSAGE = TimeStamp, Lat, Lon, Alt, Speed, HDG, GPS_SATS, GPS_PRECISION, BATTLVL, IRIDIUM_SATS, INT_TEMP, STAGE
@@ -1086,21 +1093,21 @@ String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR T
    return value;
 }
 
-String exTelemetryString() {	 //THIS IS THE ALTERNATE STRING THAT WILL BE SENT 
-  //B MESSAGE = TimeStamp, Lat, Lon, Alt, ExtTemp, ExtHum, ExtPress
-  String value = "B," + gpsTimeStamp() + "," + 
-  String(gpsParser.location.lat(), 6) + "," + 
-  String(gpsParser.location.lng(), 6) + "," + 
-  String(gpsParser.altitude.feet(),0) + "," +
-  String(0) + "," + 
-  String(0) + "," + 
-  String(0) + "," + 
-  missionStageShortString();
+// String exTelemetryString() {	 //THIS IS THE ALTERNATE STRING THAT WILL BE SENT 
+//   //B MESSAGE = TimeStamp, Lat, Lon, Alt, ExtTemp, ExtHum, ExtPress
+//   String value = "B," + gpsTimeStamp() + "," + 
+//   String(gpsParser.location.lat(), 6) + "," + 
+//   String(gpsParser.location.lng(), 6) + "," + 
+//   String(gpsParser.altitude.feet(),0) + "," +
+//   String(0) + "," + 
+//   String(0) + "," + 
+//   String(0) + "," + 
+//   missionStageShortString();
 
 
-  return value;
-  //TODO (ADD EXTENDED TELEMETRY DATA)
-}
+//   return value;
+//   //TODO (ADD EXTENDED TELEMETRY DATA)
+// }
 
 
 String SDLogString() {
