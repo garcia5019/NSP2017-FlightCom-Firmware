@@ -13,20 +13,20 @@
 //====[SETTINGS]=================================================
 bool cellModemEnabled = true;  //NO CONST!
 bool satModemEnabled = true;  //NO CONST!
-bool cellMuteEnabled = true;   //NO CONST!
+bool cellMuteEnabled = false;   //NO CONST!
 bool sdMuteEnabled = false;   //NO CONST!
 bool satMuteEnabled = true;   //NO CONST!
 
-const float altitudeGainClimbTrigger = 20; //Minimum alt gain after startup to detect climb.
-const float altitudePerMinuteGainClimbTrigger = 100; //ft per minute to detect a climb
-const float altitudeLossPerMinuteForDescentDetection = -150;
+const float altitudeGainClimbTrigger = 65; //FT Minimum alt gain after startup to detect climb.
+const float altitudePerMinuteGainClimbTrigger = 200; //ft per minute to detect a climb
+const float altitudeLossPerMinuteForDescentDetection = -200;
 const float iterationsInLowDescentToTriggerRecovery = 20;
-const float minimumAltitudeToTriggerRecovery = 7000; //If above this level we will not trigger recovery (Should we remove this??)
+const float minimumAltitudeToTriggerRecovery = 10000; //If above this level we will not trigger recovery (Should we remove this??)
 const float minimumSonarDistanceToConfirmRecovery = 1; //Meters
-const uint periodBetweenCellularReports = 20; //Seconds
-const uint periodBetweenSatelliteReports = 30; //Seconds
-const uint periodBetweenSDWriteReports = 5; //Seconds
-const char *SDFileName = "NSP2017Log.txt";
+const uint periodBetweenCellularReports = 30; //Seconds
+const uint periodBetweenSatelliteReports = 40; //Seconds
+// const uint periodBetweenSDWriteReports = 5; //Seconds
+// const char *SDFileName = "NSP2017Log.txt";
 bool debugMode = true;  //NO CONST!
 
 //ADC PARAMS FOR SENSOR READINGS
@@ -301,7 +301,7 @@ void updateLocalSensors() {
 
 void doDebugToComputer() {		 	
  	if (debugMode == true && gpsDebugDump == false && satDebugDump == false && simulationMode == false) {
-		sendToComputer(telemetryString());		
+		sendToComputer(SDLogString());		
 	}
 }
 
@@ -1071,8 +1071,8 @@ void sendExtendedDataToCell() {
 String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR TELEMETRY	
 	//A MESSAGE = TimeStamp, Lat, Lon, Alt, Speed, HDG, GPS_SATS, GPS_PRECISION, BATTLVL, IRIDIUM_SATS, INT_TEMP, STAGE
 	String value =  "A," + gpsTimeStamp() + "," + 
-  String(gpsParser.location.lat(), 4) + "," + 
-  String(gpsParser.location.lng(), 4) + "," + 
+  String(gpsParser.location.lat(), 6) + "," + 
+  String(gpsParser.location.lng(), 6) + "," + 
   String(gpsParser.altitude.feet(),0) + "," + 
   String(gpsParser.speed.knots(),0) + "," +
    String(gpsParser.course.deg(),0) + "," + 
@@ -1089,8 +1089,8 @@ String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR T
 String exTelemetryString() {	 //THIS IS THE ALTERNATE STRING THAT WILL BE SENT 
   //B MESSAGE = TimeStamp, Lat, Lon, Alt, ExtTemp, ExtHum, ExtPress
   String value = "B," + gpsTimeStamp() + "," + 
-  String(gpsParser.location.lat(), 4) + "," + 
-  String(gpsParser.location.lng(), 4) + "," + 
+  String(gpsParser.location.lat(), 6) + "," + 
+  String(gpsParser.location.lng(), 6) + "," + 
   String(gpsParser.altitude.feet(),0) + "," +
   String(0) + "," + 
   String(0) + "," + 
@@ -1105,8 +1105,8 @@ String exTelemetryString() {	 //THIS IS THE ALTERNATE STRING THAT WILL BE SENT
 
 String SDLogString() {
 	String value =  gpsTimeStamp() + "," + 
-	String(gpsParser.location.lat(), 4) + "," + 
-	String(gpsParser.location.lng(), 4) + "," + 
+	String(gpsParser.location.lat(), 6) + "," + 
+	String(gpsParser.location.lng(), 6) + "," + 
 	String(gpsParser.altitude.feet(),0) + "," + 
 	String(gpsParser.speed.knots(),0) + "," +
 	String(gpsParser.course.deg(),0) + "," + 
