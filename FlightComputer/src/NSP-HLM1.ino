@@ -13,7 +13,7 @@
 //====[SETTINGS]=================================================
 bool cellModemEnabled = true;  //NO CONST!
 bool satModemEnabled = true;  //NO CONST!
-bool cellMuteEnabled = false;   //NO CONST!
+bool cellMuteEnabled = true;   //NO CONST!
 bool sdMuteEnabled = false;   //NO CONST!
 bool satMuteEnabled = true;   //NO CONST!
 
@@ -40,6 +40,15 @@ bool satDebugDump = false;
 bool sdDebugDump = false;
 float simulatedApogeeAltitude = 200;
 //<<<<<<
+
+//EEPROM PARAMETERS FOR REBOOT PERSISTENT ADDRESS >>>>>>
+int eeprom_rebootRecoveryModeAddress = 1;
+uint16_t rebootRecoveryMode = 0; 
+struct RebootRecoveryData {
+	uint8_t version; //eeprom version check
+ 	uint8_t mode;
+ 	float initialGPSAltitude;    
+};
 
 //PARTICLE SYSTEM PARAMS
 SYSTEM_MODE(SEMI_AUTOMATIC);
@@ -175,32 +184,6 @@ void setup() {
 	sendToComputer("[Stage] Ground ");
 }
 
-void bootSDCard() {
-//   SDCARD.write(26);
-//   SDCARD.write(26);
-//   SDCARD.write(26);  
-//   delay(100);
-//   // OpenLog.print("new ");
-//   // OpenLog.println(SDFileName);
-//   SDCARD.print("append ");
-//   SDCARD.println(SDFileName);  
-//   delay(200);
-
-	delay(100);
-	writeLineToSDCard("[EVENT] System Boot");
-
-	if (Time.isValid() == true) {
-		time_t time = Time.now();  	
-		writeLineToSDCard("TimeStamp: " + Time.format(time, TIME_FORMAT_ISO8601_FULL));
-	} else {
-		writeLineToSDCard("[EVENT] System Boot");
-		writeLineToSDCard("TimeStamp: Not provided by Kernel");
-	}
-
-	delay(200);
-	sendToComputer("[SDCARD] Initialized to append writing");
-}
-
 
 void loop() {
 	uint currentTime = millis(); //Get the time since boot.
@@ -230,6 +213,50 @@ void loop() {
 	if (elapsedSeconds >= 240) { elapsedSeconds = 0; } //Prevent overflow
 	
 } 
+
+
+// ==========================================================
+// PERIPHERALS
+// ==========================================================
+void bootSDCard() {
+	delay(100);
+	writeLineToSDCard("[EVENT] System Boot");
+
+	if (Time.isValid() == true) {
+		time_t time = Time.now();  	
+		writeLineToSDCard("TimeStamp: " + Time.format(time, TIME_FORMAT_ISO8601_FULL));
+	} else {
+		writeLineToSDCard("[EVENT] System Boot");
+		writeLineToSDCard("TimeStamp: Not provided by Kernel");
+	}
+
+	delay(200);
+	sendToComputer("[SDCARD] Initialized to append writing");
+
+	checkRebootRecoveryMode();
+}
+
+void checkRebootRecoveryMode() {
+	RebootRecoveryData rebootRecoveryData;
+	EEPROM.get(eeprom_rebootRecoveryModeAddress, rebootRecoveryData);
+
+	if (rebootRecoveryData.version == 0) {		
+		rebootRecoveryMode = rebootRecoveryData.mode;
+	}
+
+
+	if (rebootRecoveryMode == 1) {		
+		initialGPSAltitude = rebootRecoveryData.initialGPSAltitude;
+		cellMuteEnabled = false;
+		satMuteEnabled = false;
+		sdMuteEnabled = false;
+		sendToComputer("[EVENT] >RECOVERY MODE DETECTED<");
+		sendToComputer("[EVENT] RECOVERY ALT: " + String(initialGPSAltitude));
+		writeLineToSDCard("[EVENT] >RECOVERY MODE DETECTED<");
+		writeLineToSDCard("[EVENT] RECOVERY ALT: " + String(initialGPSAltitude));
+	}
+
+}
 
 // ==========================================================
 // PERIODIC TASKS
@@ -436,10 +463,10 @@ float readInternalTemp() {
 }
 
 void setupBatteryCharger() {
-	PMIC pmic; //Initalize the PMIC class so you can call the Power Management functions below. 
-	pmic.begin();
-	pmic.setChargeCurrent(0,0,1,0,0,0); //Set charging current to 1024mA (512 + 512 offset)
-	pmic.setInputCurrentLimit(2000);
+	PMIC pmic; //Initalize the PMIC class so you can call the Power Management functions below. 	
+	pmic.setChargeCurrent(0,0,1,0,0,0);
+	pmic.setInputCurrentLimit(1500);
+	pmic.setChargeVoltage(4208);
 }
 
 // ==========================================================
@@ -700,6 +727,7 @@ int computerRequest(String param) {
 			return 0;
 		}
 	}
+
 	if (param == "sdmute") {
 		sdMuteEnabled = !sdMuteEnabled;
 		if (sdMuteEnabled == true) {
@@ -710,6 +738,42 @@ int computerRequest(String param) {
 			return 0;
 		}
 	}
+
+	if (param == "flymode") {
+		cellMuteEnabled = false;
+		satMuteEnabled = false;
+		sdMuteEnabled = false;
+		rebootRecoveryMode = 1;
+
+		RebootRecoveryData rebootRecoveryData;
+		rebootRecoveryData.mode = rebootRecoveryMode;
+		rebootRecoveryData.initialGPSAltitude = initialGPSAltitude;
+		rebootRecoveryData.version = 0;
+		EEPROM.put(eeprom_rebootRecoveryModeAddress, rebootRecoveryData);
+
+		// EEPROM.put(eeprom_rebootRecoveryModeAddress, rebootRecoveryMode);
+		writeLineToSDCard("[EVENT] Fly Mode Armed");
+		sendToComputer("[EVENT] Fly Mode Armed");
+		
+		return 1;
+	}
+
+	if (param == "rigmode") {
+		cellMuteEnabled = true;
+		satMuteEnabled = true;		
+		rebootRecoveryMode = 0;
+		
+		RebootRecoveryData rebootRecoveryData;
+		rebootRecoveryData.mode = rebootRecoveryMode;
+		rebootRecoveryData.initialGPSAltitude = initialGPSAltitude;
+		rebootRecoveryData.version = 0;
+		EEPROM.put(eeprom_rebootRecoveryModeAddress, rebootRecoveryData);
+		writeLineToSDCard("[EVENT] Rig Mode Enabled");
+		sendToComputer("[EVENT] Rig Mode Enabled");
+		return 1;
+	}
+
+
 
 	if (param == "saton") {				
 		setSatModem(true);		
@@ -765,10 +829,12 @@ int computerRequest(String param) {
 		digitalWrite(BUZZERPin, LOW);		
 		return 1;
 	}
+
 	if (param == "resetinitialaltitude") {				
 		initialGPSAltitude = gpsParser.altitude.feet();
 		return initialGPSAltitude;
 	}
+
 	if (param == "preflight?") {		
 		return performPreflightCheck();
 	}
@@ -833,6 +899,16 @@ int computerRequest(String param) {
 		}
 		sendToComputer("NO");
 		return 0;
+	}
+
+	if (param == "flymode?") {	
+		if (rebootRecoveryMode == 1) {
+			sendToComputer("Fly Mode Armed");
+		} else {
+			sendToComputer("Rig Mode Enabled");
+		}
+
+		return rebootRecoveryMode;
 	}
 
 	if (param == "fwversion?") {
@@ -924,6 +1000,7 @@ int computerRequest(String param) {
   		sendToSDCard("set");
   		sendToComputer("OK");
 	}
+
 	
 
 	if (param == "?") {
@@ -943,6 +1020,8 @@ int computerRequest(String param) {
 		COMPUTER.println("celloff = Cell Modem Off");
 		COMPUTER.println("cellmute = Toggle Cell Reporting");
 		COMPUTER.println("satmute = Toggle Sat Reporting");
+		COMPUTER.println("flymode = Set system to fly mode [needed for mission]");
+		COMPUTER.println("rigmode = Toggle Sat Reporting [disbales fly mode]");
 		COMPUTER.println("saton = SAT Modem ON");
 		COMPUTER.println("satoff = SAT Modem Off");
 		COMPUTER.println("comoff = All Comunication systems OFF [cell + sat]");
@@ -966,6 +1045,7 @@ int computerRequest(String param) {
 		COMPUTER.println("cloud? = Is cloud available?");
 		COMPUTER.println("satsignal? = 0-5 Satcom signal strength?");		
 		COMPUTER.println("satenabled? = Is the sat modem enabled?");		
+		COMPUTER.println("flymode? = Is the system in fly mode?");		
 		COMPUTER.println("bat? = Get battery level?");	
 		COMPUTER.println("gpsfix? = Get GpsFix ValueType? (0=NoFix,1=Fix,2=DGPSFix)");
 		COMPUTER.println("sonar? = Get the sonar distance in meters. (cm for cell)");
@@ -1038,7 +1118,8 @@ int performPreflightCheck() {
 			return -10;	
 		}
 
-		sendToComputer("GO FOR LAUNCH");
+		sendToComputer("[System] GO FOR LAUNCH");
+		writeLineToSDCard("[System] GO FOR LAUNCH");
 		return 1;
 }
 
@@ -1085,7 +1166,7 @@ String telemetryString() {	 //THIS IS ONE OF THE STRINGS THAT WILL BE SENT FOR T
    String(gpsParser.course.deg(),0) + "," + 
    String(gpsParser.satellites.value()) + "," + 
    String(gpsParser.hdop.value()) +  "," +    
-   String(batteryLevel/10,0) +  "," + 
+   String(batteryLevel,0) +  "," + 
    String(satcomSignal) +  "," + 
    String(internalTempC,0) +  "," + 
    missionStageShortString();
@@ -1119,7 +1200,7 @@ String SDLogString() {
 	String(gpsParser.course.deg(),0) + "," + 
 	String(gpsParser.satellites.value()) + "," + 
 	String(gpsParser.hdop.value()) +  "," +    
-	String(batteryLevel/10,0) +  "," + 
+	String(batteryLevel,0) +  "," + 
 	String(satcomSignal) +  "," + 
 	String(internalTempC,0) +  "," + 
 	missionStageShortString();
