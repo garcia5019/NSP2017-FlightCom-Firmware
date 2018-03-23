@@ -20,7 +20,7 @@ bool satMuteEnabled = true;   //NO CONST!
 const float altitudeGainClimbTrigger = 200; //FT Minimum alt gain after startup to detect climb.
 const float altitudePerMinuteGainClimbTrigger = 200; //ft per minute to detect a climb
 const float altitudeLossPerMinuteForDescentDetection = -200;
-const float iterationsInLowDescentToTriggerRecovery = 20;
+const float iterationsInLowDescentToTriggerRecovery = 50;
 const float minimumAltitudeToTriggerRecovery = 10000; //If above this level we will not trigger recovery (Should we remove this??)
 const float minimumSonarDistanceToConfirmRecovery = 1; //Meters
 const uint periodBetweenCellularReports = 30; //Seconds
@@ -30,7 +30,7 @@ const uint periodBetweenSatelliteReports = 40; //Seconds
 bool debugMode = true;  //NO CONST!
 
 //ADC PARAMS FOR SENSOR READINGS
-const int ADC_OVERSAMPLE = 5; //Number of samples to take before making an accurate reading (average)
+const int ADC_OVERSAMPLE = 10; //Number of samples to take before making an accurate reading (average)
 
 
 //SIMULATION SETTINGS >>>>>>
@@ -409,7 +409,8 @@ void updateStage() {
 		if ((missionStage == descent && altitudePerMinute < 2) && (gpsAltitude <= minimumAltitudeToTriggerRecovery)) {
 			recoveryDetectionIterations++;
 			if (recoveryDetectionIterations >= iterationsInLowDescentToTriggerRecovery) {			
-				missionStage = recovery;			
+				missionStage = recovery;	
+				digitalWrite(BUZZERPin, HIGH);		
 				sendToComputer("[Stage] Recovery Detected at " + String(gpsAltitude));		
 				writeLineToSDCard("[Stage] Recovery Detected at " + String(gpsAltitude));		
 			}
