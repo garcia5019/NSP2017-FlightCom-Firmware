@@ -25,6 +25,7 @@ const float minimumAltitudeToTriggerRecovery = 10000; //If above this level we w
 const float minimumSonarDistanceToConfirmRecovery = 1; //Meters
 const uint periodBetweenCellularReports = 30; //Seconds
 const uint periodBetweenSatelliteReports = 40; //Seconds
+const float minimumBatteryForLEDUse = 70;
 // const uint periodBetweenSDWriteReports = 5; //Seconds
 // const char *SDFileName = "NSP2017Log.txt";
 bool debugMode = true;  //NO CONST!
@@ -40,9 +41,6 @@ bool satDebugDump = false;
 bool sdDebugDump = false;
 float simulatedApogeeAltitude = 200;
 //<<<<<<
-
-//GLOBAL VARS >>>>>>
-float altitudeGain;
 
 //EEPROM PARAMETERS FOR REBOOT PERSISTENT ADDRESS >>>>>>
 int eeprom_rebootRecoveryModeAddress = 1;
@@ -69,7 +67,7 @@ SYSTEM_THREAD(ENABLED);
 #define SATCOM Serial5
 #define SATCOMEvent serialEvent5
 #define SATCOMEnablePin D2
-#define YELLOWPin A5
+#define EXTSTATUSLEDPin A5
 #define BUZZERPin D4
 #define SONARPin A1
 #define TEMPSENSORPin A0
@@ -85,7 +83,8 @@ uint recoveryDetectionIterations = 0;
 float initialGPSAltitude = -1.0;
 float lastPositiveGPSAltitude = 0.0;
 float lastGPSAltitude = -1.0;
-float altitudePerMinute = 0.0;
+float altitudePerMinute = -1.0;
+float altitudeGain = -1.0;
 float altitudeOfApogee = -1.0;
 float sonarDistance = -1.0; //In Meters
 float internalTempC = -1.0; //In C
@@ -149,11 +148,11 @@ void setup() {
 	//Setup SATCOM
 	pinMode(SATCOMEnablePin, OUTPUT);	
 	pinMode(BUZZERPin, OUTPUT);	
-	pinMode(YELLOWPin, OUTPUT);	
+	pinMode(EXTSTATUSLEDPin, OUTPUT);	
 	// pinMode(SONARPin, INPUT);
 	digitalWrite(SATCOMEnablePin, HIGH);
 	digitalWrite(BUZZERPin, LOW);
-	digitalWrite(YELLOWPin, LOW);
+	digitalWrite(EXTSTATUSLEDPin, LOW);
 	
 
 	//CONNECT TO GPS
@@ -187,6 +186,7 @@ void setup() {
 	batteryLevel = fuel.getSoC();
 	
 	delay(300);
+	initialGPSAltitude = -1;
 	sendToComputer("[Stage] Ground ");
 }
 
@@ -276,21 +276,23 @@ void setMissionIndicators() {
 		if (missionStage == descent) { RGB.color(255,215,0); } //Yellow
 		if (missionStage == recovery) { RGB.color(255,0,255); } //Magenta
 
-		bool missionWarningLED = true;
-		if ((satcomSignal >= 1 && initialGPSAltitude != -1 && Particle.connected() == true) && sonarDistance <= 6) {
-			missionWarningLED = false;
+		bool missionWarningLED = false;
+		if (missionStage == ground) {
+			if (performPreflightCheck() != 1 && batteryLevel >= minimumBatteryForLEDUse) {
+				missionWarningLED = true;
+			}
 		}
 
 		if (elapsedSeconds % 2 == 0 ) { //LEDS					
 			RGB.brightness(0);	
-			digitalWrite(YELLOWPin, HIGH);
-			if (missionWarningLED==true) { digitalWrite(YELLOWPin, HIGH); }
+			digitalWrite(EXTSTATUSLEDPin, HIGH);
+			if (missionWarningLED==true) { digitalWrite(EXTSTATUSLEDPin, HIGH); }
 		} else {				
-			if (debugMode == true) {
+			if (debugMode == true && batteryLevel >= minimumBatteryForLEDUse) {
 				RGB.brightness(100);				
 			}		
 
-			if (missionWarningLED==true) { digitalWrite(YELLOWPin, LOW); } 
+			if (missionWarningLED==true) { digitalWrite(EXTSTATUSLEDPin, LOW); } 
 		}
 
 	
@@ -706,8 +708,9 @@ int computerRequest(String param) {
 		missionStage = ground;
 		initialGPSAltitude = -1.0;
 		lastPositiveGPSAltitude = 0.0;
+		altitudeGain = -1.0;
 		lastGPSAltitude = -1.0;
-		altitudePerMinute = 0.0;
+		altitudePerMinute = -1.0;
 		altitudeOfApogee = -1.0;
 		simulatedAltitude = 0.0; //For simulation only.
 		sendToComputer("OK");
@@ -957,7 +960,7 @@ int computerRequest(String param) {
 	}
 
 	if (param == "$") {
-		sendToComputer(telemetryString());
+		sendToComputer(SDLogString());
 		return 1;		
 	}
 
@@ -1084,60 +1087,60 @@ int computerRequest(String param) {
 
 int performPreflightCheck() {
 		if (initialGPSAltitude == -1) {
-			sendToComputer("NO GO - MISSING INITIAL ALTITUDE");
+			// sendToComputer("NO GO - MISSING INITIAL ALTITUDE");
 			return -1;
 		}
 		
 		if (missionStage != ground) {
-			sendToComputer("NO GO - STAGE NOT IN GOUND MODE");
+			// sendToComputer("NO GO - STAGE NOT IN GOUND MODE");
 			return -2;
 		}
 
 		if (gpsParser.hdop.value() > 300) {
-			sendToComputer("NO GO - GPS PRECISION OUT OF RANGE");
+			// sendToComputer("NO GO - GPS PRECISION OUT OF RANGE");
 			return -3;
 		}
 
 		if (gpsState != Fix) {
-			sendToComputer("NO GO - GPS DOES NOT HAVE FIX");
+			// sendToComputer("NO GO - GPS DOES NOT HAVE FIX");
 			return -4;
 		}
 
 
 		if (batteryLevel < 80) {
-			sendToComputer("NO GO - LOW BATTERY FOR LAUNCH");
+			// sendToComputer("NO GO - LOW BATTERY FOR LAUNCH");
 			return -5;	
 		}
 
 		if (sonarDistance > 10) {
-			sendToComputer("NO GO - SONAR TEST FAILED");
+			// sendToComputer("NO GO - SONAR TEST FAILED");
 			return -6;	
 		}	
 
 
 		if (satModemEnabled == false) {
-			sendToComputer("NO GO - SAT MODEM IS OFF");
+			// sendToComputer("NO GO - SAT MODEM IS OFF");
 			return -7;	
 		}
 
 		if (cellModemEnabled == false) {
-			sendToComputer("NO GO - CELL MODEM IS OFF");
+			// sendToComputer("NO GO - CELL MODEM IS OFF");
 			return -8;	
 		}
 
 		if (satcomSignal < 2) {
-			sendToComputer("NO GO - NOT ENOUGH SATCOM SATS FOR LAUNCH");
+			// sendToComputer("NO GO - NOT ENOUGH SATCOM SATS FOR LAUNCH");
 			return -9;	
 		}
 
 		getCellSignal();
 		if (cellSignalRSSI <= 0 || cellSignalQuality <= 0) {
-			sendToComputer("NO GO - NOT ENOUGH CELL SIGNAL FOR LAUNCH");
+			// sendToComputer("NO GO - NOT ENOUGH CELL SIGNAL FOR LAUNCH");
 			return -10;	
 		}
 
-		sendToComputer("[System] GO FOR LAUNCH");
-		writeLineToSDCard("[System] GO FOR LAUNCH");
+		// sendToComputer("[System] GO FOR LAUNCH");
+		// writeLineToSDCard("[System] GO FOR LAUNCH");
 		return 1;
 }
 
