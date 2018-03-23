@@ -1023,10 +1023,10 @@ int computerRequest(String param) {
 
 	if (param == "?") {
 		TRY_LOCK(COMPUTER) {
-		COMPUTER.println("-------------------------.--------------------------");		
+		COMPUTER.println("-------------------------.--------------------------.--------------------");		
 		COMPUTER.println("Status Sentence (1hz):");
-		COMPUTER.println("TIME,LAT,LON,ALT,SPEED,COURSE,SATS,HDOP,BATT,SAT,STAGE");
-		COMPUTER.println("-------------------------.--------------------------");		
+		COMPUTER.println("TIME,LAT,LON,ALT,SPEED,COURSE,SATS,HDOP,BATT,SAT,STAGE,SONAR,ALTPM,ALTGAIN");
+		COMPUTER.println("-------------------------.--------------------------.--------------------");		
 		COMPUTER.println("deboff = Debug Off");
 		COMPUTER.println("debon = Debug On");
 		COMPUTER.println("simon = Start Simulation");
