@@ -41,6 +41,9 @@ bool sdDebugDump = false;
 float simulatedApogeeAltitude = 200;
 //<<<<<<
 
+//GLOBAL VARS >>>>>>
+float altitudeGain;
+
 //EEPROM PARAMETERS FOR REBOOT PERSISTENT ADDRESS >>>>>>
 int eeprom_rebootRecoveryModeAddress = 1;
 uint16_t rebootRecoveryMode = 0; 
@@ -66,6 +69,7 @@ SYSTEM_THREAD(ENABLED);
 #define SATCOM Serial5
 #define SATCOMEvent serialEvent5
 #define SATCOMEnablePin D2
+#define YELLOWPin A5
 #define BUZZERPin D4
 #define SONARPin A1
 #define TEMPSENSORPin A0
@@ -145,9 +149,11 @@ void setup() {
 	//Setup SATCOM
 	pinMode(SATCOMEnablePin, OUTPUT);	
 	pinMode(BUZZERPin, OUTPUT);	
+	pinMode(YELLOWPin, OUTPUT);	
 	// pinMode(SONARPin, INPUT);
 	digitalWrite(SATCOMEnablePin, HIGH);
 	digitalWrite(BUZZERPin, LOW);
+	digitalWrite(YELLOWPin, LOW);
 	
 
 	//CONNECT TO GPS
@@ -270,14 +276,25 @@ void setMissionIndicators() {
 		if (missionStage == descent) { RGB.color(255,215,0); } //Yellow
 		if (missionStage == recovery) { RGB.color(255,0,255); } //Magenta
 
+		bool missionWarningLED = true;
+		if ((satcomSignal >= 1 && initialGPSAltitude != -1 && Particle.connected() == true) && sonarDistance <= 6) {
+			missionWarningLED = false;
+		}
 
 		if (elapsedSeconds % 2 == 0 ) { //LEDS					
-			RGB.brightness(0);				
+			RGB.brightness(0);	
+			digitalWrite(YELLOWPin, HIGH);
+			if (missionWarningLED==true) { digitalWrite(YELLOWPin, HIGH); }
 		} else {				
 			if (debugMode == true) {
-				RGB.brightness(100);
+				RGB.brightness(100);				
 			}		
+
+			if (missionWarningLED==true) { digitalWrite(YELLOWPin, LOW); } 
 		}
+
+	
+
 }
 
 void satcomKeepAlive() {
@@ -349,7 +366,7 @@ void signalFlareCheck() {
 void updateStage() {
 
 	float gpsAltitude = gpsParser.altitude.feet() + simulatedAltitude;	
-	float altitudeGain = (gpsAltitude - initialGPSAltitude);
+	altitudeGain = (gpsAltitude - initialGPSAltitude);
 	float altitudeTrend = gpsAltitude - lastGPSAltitude;	
 	altitudePerMinute = altitudeTrend * 60;
 		
@@ -1108,7 +1125,7 @@ int performPreflightCheck() {
 			return -8;	
 		}
 
-		if (satcomSignal < 3) {
+		if (satcomSignal < 2) {
 			sendToComputer("NO GO - NOT ENOUGH SATCOM SATS FOR LAUNCH");
 			return -9;	
 		}
@@ -1204,6 +1221,9 @@ String SDLogString() {
 	String(batteryLevel,0) +  "," + 
 	String(satcomSignal) +  "," + 
 	String(internalTempC,0) +  "," + 
+	String(sonarDistance,0) +  "," + 
+	String(altitudePerMinute,0) +  "," + 
+	String(altitudeGain,0) +  "," + 
 	missionStageShortString();
 
 	return value;
