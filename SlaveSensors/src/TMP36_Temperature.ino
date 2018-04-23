@@ -31,23 +31,19 @@ void setup() {
 }
  
 void loop() {
-  
+  //chou no te jalaba pq lo tienes que scale a la voltage de whatever sensor youre using – esto esta configured para el mega, el jueves te lo set up para el teensy
   //getting the voltage reading from the temperature sensor
-  int reading = analogRead(sensorPin);  
+  float reading = analogRead(sensorPin);  
  
-  // converting that reading to voltage, for 3.3v arduino use 3.3
-  float voltage = reading * 5.0;
-  voltage /= 1024.0; 
- 
-  // print out the voltage
-  Serial.print(voltage); Serial.println(" volts");
+  // converting that reading to voltage, for 3.3v arduino use 3.3  
+  float voltage = (reading / 1024) * 3.3;
  
   // now print out the temperature
-  float temperature = (voltage - 0.5) * 100 ;  //converting from 10 mv per degree wit 500 mV offset
+  float temperature = (voltage - 0.5) * 10; //converting from 10 mv per degree wit 500 mV offset
                                                //to degrees ((voltage - 500mV) times 100)
   
-  Serial.print("Temperature [0.01 C]: ");
-  Serial.print(temperature);
+  //Serial.print("Temperature [0.01 C]: ");
+  Serial.println(temperature);
 
   // store in char arrays
   // dtostrf converts the float variables to a string for I2C. (floatVar, minStringWidthIncDecimalPoint, numVarsAfterDecimal, empty array);
